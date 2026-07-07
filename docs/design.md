@@ -48,9 +48,10 @@ use: bold/extrabold/black only. Reader text scales `clamp(2rem → 3.25rem)`.
 - **Emoji as content, not chrome** — theme tiles, placeholder art, and empty
   states use emoji as *pictures for pre-readers* (the content of the product).
   Emoji remains banned as an icon system; UI glyphs are Lucide, few and huge.
-- **Radius & motion** — tiles are far rounder than the base scale, and page
-  turns use springs beyond the base 300ms cap. Toddler pacing beats dashboard
-  pacing. `prefers-reduced-motion` collapses everything to ≤150ms fades.
+- **Radius** — tiles are far rounder than the base scale. Motion stays inside
+  the base 300ms cap (page turns are a 280ms ease-out slide; long spring tails
+  proved freezable mid-flight by viewport rotation). `prefers-reduced-motion`
+  collapses everything to ≤150ms fades.
 - **Hard offset edges instead of soft shadows** — they encode "pressable",
   which is data for this audience, not decoration.
 - **No dark mode** — product decision (also in the brief). The cream paper is

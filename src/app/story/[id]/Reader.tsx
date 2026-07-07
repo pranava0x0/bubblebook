@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import { ArrowLeft, ArrowRight, Home, RotateCcw } from "lucide-react";
 
 export type ReaderPage = {
@@ -19,20 +19,19 @@ export default function Reader({ title, pages }: { title: string; pages: ReaderP
   const reduceMotion = useReducedMotion();
   const endIndex = pages.length;
 
+  // Page 1 renders in place (no entrance slide): the SSR HTML would otherwise
+  // carry an offscreen transform until hydration. Turns after that animate.
+  const firstRender = useRef(true);
+  useEffect(() => {
+    firstRender.current = false;
+  }, []);
+
   function go(delta: number) {
     setPage(([current]) => {
       const next = Math.min(Math.max(current + delta, 0), endIndex);
       return [next, delta];
     });
   }
-
-  const variants = {
-    enter: (dir: number) =>
-      reduceMotion ? { opacity: 0 } : { x: dir > 0 ? "100%" : "-100%", opacity: 1 },
-    center: { x: 0, opacity: 1 },
-    exit: (dir: number) =>
-      reduceMotion ? { opacity: 0 } : { x: dir > 0 ? "-100%" : "100%", opacity: 1 },
-  };
 
   const page = index < endIndex ? pages[index] : null;
 
@@ -63,18 +62,29 @@ export default function Reader({ title, pages }: { title: string; pages: ReaderP
       </div>
 
       <div className="relative flex-1 overflow-hidden">
-        <AnimatePresence custom={direction} initial={false} mode="popLayout">
-          <motion.section
+        {/* No exit animations on purpose: toddlers mash the arrows faster than
+            a page turn settles, and interrupted AnimatePresence exits stall
+            with ghost pages stuck mid-transition. A keyed remount that slides
+            the new page in over an instant unmount can't be wedged — exactly
+            one page exists at any moment. The slide is a tween, not a spring:
+            a long spring tail left a page frozen mid-slide when a viewport
+            resize (tablet rotation) landed during the animation; 280ms keeps
+            that window tiny and stays inside the motion budget. */}
+        <motion.section
             key={index}
-            custom={direction}
-            variants={variants}
-            initial="enter"
-            animate="center"
-            exit="exit"
+            {...(firstRender.current
+              ? { initial: false as const }
+              : reduceMotion
+                ? { initial: { opacity: 0 }, animate: { opacity: 1 } }
+                : {
+                    // Both endpoints in percent: mixing "100%" with a numeric
+                    // 0 forces framer's DOM-measuring unit conversion, a
+                    // fragile path under throttled rAF (backgrounded tabs).
+                    initial: { x: direction > 0 ? "100%" : "-100%" },
+                    animate: { x: "0%" },
+                  })}
             transition={
-              reduceMotion
-                ? { duration: 0.15 }
-                : { type: "spring", stiffness: 300, damping: 32 }
+              reduceMotion ? { duration: 0.15 } : { duration: 0.28, ease: "easeOut" }
             }
             drag={reduceMotion ? false : "x"}
             dragConstraints={{ left: 0, right: 0 }}
@@ -134,8 +144,7 @@ export default function Reader({ title, pages }: { title: string; pages: ReaderP
                 </div>
               </div>
             )}
-          </motion.section>
-        </AnimatePresence>
+        </motion.section>
       </div>
 
       <div className="absolute inset-x-0 bottom-0 z-20 flex items-center justify-between p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
