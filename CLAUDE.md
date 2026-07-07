@@ -1,3 +1,20 @@
+# Bubble Book — project intent
+
+An AI board-book maker for a parent and a 2-year-old: tap a picture, get a
+3–5 page story (2–5 words per page), characters persist in a vault for reuse.
+Stack: Next.js 15 (App Router) · Tailwind 4 (tokens in `src/app/globals.css`)
+· Supabase (live project `fwhdonlyhnezjnskjvcb`; migrations in
+`supabase/migrations/`) · `claude-sonnet-5` via the official Anthropic SDK
+(credentials from `ANTHROPIC_API_KEY` **or** an `ant auth login` profile — the
+Vercel AI SDK was dropped because it is key-only).
+
+Verify: `npm run typecheck && npm test && npm run build`. File map in
+README.md. Design identity in `docs/design.md` (kept there, not at the root,
+to dodge the macOS case-collision with `DESIGN.md`). Base principles follow;
+project rules win on conflict.
+
+---
+
 # CLAUDE.md: Universal Development Principles
 
 > Base file for every project in this folder. Project files extend it and win on conflict (they're the local source of truth).

@@ -301,3 +301,38 @@ Add a concise note to the project's CLAUDE.md or `issues.md`. The pattern is:
 The note grows the project's scar tissue. The next agent (or you, a month from now) avoids the same hour-long detour.
 
 That growth, files getting *slightly* more specific with each session's surprises, is the asset. Don't rewrite from scratch; append.
+
+---
+
+## Project notes — Bubble Book (living; append, don't rewrite)
+
+- **Verify commands:** `npm run typecheck && npm test && npm run build`. UI:
+  `preview_start` config `bubble-book` (port 3000), then screenshot at 375px.
+- **Anthropic auth:** the app constructs a zero-arg official-SDK client, so the
+  credential chain is `ANTHROPIC_API_KEY` → `ant auth login` OAuth profile
+  (`~/.config/anthropic/`). This machine has **no Homebrew**; install CLIs into
+  `~/.local/bin` (first on PATH). `ant` came from the official
+  anthropics/anthropic-cli GitHub release — note the assets are
+  `ant_<v>_macos_arm64.zip`, not the `darwin_*.tar.gz` some docs suggest.
+- **Driven-browser UAT trap:** the preview tab is frequently *backgrounded* —
+  `document.visibilityState === "hidden"`, zero rAF ticks — which freezes all
+  rAF-driven animation at its first frame and perfectly mimics an app bug.
+  Check visibility/rAF before debugging "stuck animations" (issues.md
+  2026-07-07). Screenshots of a hidden tab still render, which is the trap.
+- **Session-limit fan-outs fail silent-ish:** a 4-agent review workflow late in
+  a session died on "session limit" for all finders and returned an
+  empty-but-completed result after ~510K subagent tokens. Always read the
+  failures block and confirm the result is non-empty; fall back to an inline
+  single-author review (it found 5 real findings here); don't relaunch before
+  the limit resets.
+- **Supabase specifics proven live:** supabase-js `upsert` with
+  `onConflict: "owner_id,name_key"` works against a unique index on a
+  *generated column*; run `get_advisors(security)` after any DDL (it caught an
+  RPC-callable SECURITY DEFINER trigger fn and public-bucket listing — fixed in
+  `0003_hardening.sql`); GoTrue rejects `@example.com` signups, so test users
+  need a plus-tagged real inbox plus a SQL `email_confirmed_at` update.
+- **Headless auth for E2E:** sign in with a password test user via supabase-js,
+  then inject `sb-<ref>-auth-token` = `"base64-" + base64url(session JSON)` as
+  a cookie in the driven browser (single cookie below ~3.2KB, chunked `.0/.1`
+  above). Seed/unseed script pattern lives in the session scratchpad (e2e.cjs);
+  test account: pranava.raparla+bubble-e2e@gmail.com.
