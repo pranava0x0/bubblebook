@@ -13,6 +13,11 @@
 - **(medium) ESLint + CI.** `eslint-config-next`, then a PR workflow running
   typecheck + vitest + build (the same gate on pull_request, not just push).
 - **(medium) PWA manifest + icons** so the app installs to a tablet home screen.
+- **(low) Reader progress dots don't scale past ~8 pages** (PR #1 review): the
+  age-ladder work that introduces 10-page stories needs a dot treatment or a
+  page-count label for longer books.
+- **(low) Supabase dashboard: enable leaked-password protection** (security
+  advisor; the app is magic-link-first, so low urgency).
 - **(low) Audio narration** — parent-recorded per page, or TTS.
 - **(low) Anonymous sign-in "Try it" button** (enable anonymous auth in Supabase).
 - **(low) next/image + remotePatterns** once the image host is final (SVG

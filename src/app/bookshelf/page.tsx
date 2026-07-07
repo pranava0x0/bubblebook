@@ -33,8 +33,8 @@ export default async function BookshelfPage() {
 
       {error ? (
         <p className="mb-6 rounded-2xl bg-white p-4 text-lg font-bold text-coral">
-          The shelf wobbled and the books didn&apos;t load. Pull down to refresh, or try again
-          in a moment.
+          The shelf wobbled and the books didn&apos;t load. Give it a moment, then reload
+          the page.
         </p>
       ) : covers.length === 0 ? (
         <p className="mb-6 text-xl font-bold text-ink-soft">
