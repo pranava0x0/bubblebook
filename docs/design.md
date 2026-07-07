@@ -62,3 +62,12 @@ use: bold/extrabold/black only. Reader text scales `clamp(2rem → 3.25rem)`.
 Board-book register: short, warm, concrete. Exclamation marks are native to the
 genre and allowed in kid-facing copy. Parent-facing copy (login, errors,
 README) stays plain and specific — no AI register, per base § 11.1.
+
+## Scar tissue (motion)
+
+Page-turn surfaces that get mashed (toddlers) use a **keyed remount with no
+exit animation**: `AnimatePresence` exit-unmounts are animation-gated, so ghost
+pages accumulate whenever rAF throttles (backgrounded tab). Keep both transform
+endpoints in the **same unit** (`"100%"` → `"0%"`): mixing percent with numeric
+px forces framer's DOM-measuring unit conversion, a freezable path. First mount
+renders at rest so SSR HTML never carries an offscreen transform.
