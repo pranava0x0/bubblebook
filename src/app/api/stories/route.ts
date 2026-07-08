@@ -1,39 +1,14 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { STORAGE_BUCKET, STORY_LIMITS, THEMES } from "@/lib/constants";
-import { requiredEnv } from "@/lib/env";
 import { generateStory } from "@/lib/generate-story";
-import { makePageImage, type PageImage } from "@/lib/images";
+import { makePageImage } from "@/lib/images";
 import { createAuthedClient, createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 // The subscription path shells out to the Claude CLI (cold start + generation);
 // real image providers add ~10s per page on top.
 export const maxDuration = 120;
-
-// Upload straight to the Storage REST API with the user's JWT.
-// Two things that took a long debugging session to pin down:
-//   1. supabase-js's storage client doesn't reliably carry the token
-//      server-side, so a plain Bearer request is used instead.
-//   2. NO `x-upsert` header. Upsert makes Storage additionally evaluate the
-//      UPDATE policy, which fails RLS on a brand-new object (a 403 that reads
-//      like an auth failure but isn't). Story paths are unique per story, so a
-//      plain insert (POST) is correct and authorizes cleanly.
-async function uploadToStorage(accessToken: string, path: string, image: PageImage) {
-  const url = `${requiredEnv("NEXT_PUBLIC_SUPABASE_URL")}/storage/v1/object/${STORAGE_BUCKET}/${path}`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${accessToken}`,
-      apikey: requiredEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY"),
-      "content-type": image.contentType,
-    },
-    body: new Uint8Array(image.bytes),
-  });
-  if (!res.ok) {
-    throw new Error(`storage ${res.status}: ${(await res.text()).slice(0, 200)}`);
-  }
-}
 
 const requestSchema = z
   .object({
@@ -136,14 +111,15 @@ export async function POST(request: Request) {
   const imagePaths: string[] = [];
   for (const [index, image] of pageImages.entries()) {
     const path = `${user.id}/${storyId}/page-${index + 1}.${image.ext}`;
-    try {
-      // Direct Storage REST call with the user's JWT. supabase-js's storage
-      // client doesn't reliably carry the token server-side (neither the SSR
-      // cookie client nor the accessToken option), so it uploads as `anon` and
-      // trips RLS; a plain fetch with Authorization: Bearer does not.
-      await uploadToStorage(session.access_token, path, image);
-    } catch (error) {
-      console.error(`[stories] upload failed for page ${index + 1}:`, error);
+    // NO `upsert` — it makes Storage additionally evaluate the UPDATE policy,
+    // which fails RLS on a brand-new object (a 403 that reads like an auth
+    // failure but isn't). Paths are unique per story, so a plain insert is
+    // correct. `authed` carries the user's JWT so RLS sees the owner.
+    const { error } = await authed.storage
+      .from(STORAGE_BUCKET)
+      .upload(path, image.bytes, { contentType: image.contentType });
+    if (error) {
+      console.error(`[stories] upload failed for page ${index + 1}:`, error.message);
       return NextResponse.json({ error: "Couldn't save the pictures. Try again!" }, { status: 500 });
     }
     imagePaths.push(path);
