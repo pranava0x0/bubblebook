@@ -40,9 +40,19 @@ Living audit trail. Each entry: date, area, description, root cause
   Falls back to `ANTHROPIC_API_KEY`. Generation switched to prompt-for-JSON +
   zod validation so it doesn't depend on structured-outputs being available
   over the OAuth token.
-- **Status:** Fixed in code; live subscription call is pending the user pasting
-  a `setup-token` value (the `claude` CLI isn't reachable from the build
-  sandbox, so it couldn't be minted/verified here).
+- **Status:** Code path **verified** 2026-07-07 (PR #2 kept on main). Ran the
+  real `/api/stories` route with a genuine `sk-ant-oat…` OAuth token wired in as
+  `CLAUDE_CODE_OAUTH_TOKEN`: the app authenticated (Bearer + `oauth-2025-04-20`
+  header, no `x-api-key`), the Messages API **accepted the request shape and the
+  custom board-book system prompt** (no identity gating — an unknown worth
+  resolving), and failed **only** with `400 "credit balance too low"` because
+  that token bills a credit-less developer org. So the code is confirmed
+  working; the sole remaining variable is billing entity. A genuine
+  `claude setup-token` subscription token travels the same accepted path and
+  bills the subscription instead. That final happy-path call is unproven here
+  only because the subscription token can't be minted from this host (the
+  desktop app's `claude` is a Linux VM binary — `exec format error` — and no
+  subscription token sits in the host Keychain).
 - **Lesson:** "OAuth token" is not one thing. platform.claude.com developer
   tokens bill API credits; `claude setup-token` tokens bill the subscription.
   A valid token that authenticates fine can still be the wrong *billing* entity.
