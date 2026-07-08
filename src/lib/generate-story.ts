@@ -1,4 +1,6 @@
-import { resolveAnthropicClient } from "@/lib/anthropic-auth";
+import { spawn } from "node:child_process";
+import Anthropic from "@anthropic-ai/sdk";
+import { resolveCredential } from "@/lib/anthropic-auth";
 import { STORY_LIMITS, STORY_MODEL } from "@/lib/constants";
 import { storySchema, type GeneratedStory } from "@/lib/story-schema";
 
@@ -66,30 +68,93 @@ export function extractJsonObject(text: string): string | null {
   return null;
 }
 
+// API-key path: the official SDK against /v1/messages.
+async function rawTextFromSdk(key: string, seed: StorySeed): Promise<string> {
+  const client = new Anthropic({ apiKey: key });
+  const response = await client.messages.create({
+    model: STORY_MODEL,
+    max_tokens: 8000,
+    system: systemPrompt(seed.ageMonths),
+    messages: [{ role: "user", content: userPrompt(seed) }],
+  });
+  return response.content
+    .filter((block) => block.type === "text")
+    .map((block) => block.text)
+    .join("");
+}
+
+// Subscription path: shell out to the Claude Code CLI. A subscription OAuth
+// token only authenticates through the CLI's own request path — a raw
+// /v1/messages call with the same token is soft-blocked with a bare 429.
+// --output-format json wraps the model's answer in an envelope; our board-book
+// rules are appended to (not replacing) the CLI's own system prompt so the
+// subscription auth the API validates stays intact.
+async function rawTextFromClaudeCli(token: string, seed: StorySeed): Promise<string> {
+  const bin = process.env.CLAUDE_CLI_BIN || "claude";
+  const args = [
+    "--print",
+    userPrompt(seed),
+    "--model",
+    STORY_MODEL,
+    "--output-format",
+    "json",
+    "--append-system-prompt",
+    systemPrompt(seed.ageMonths),
+  ];
+
+  const stdout = await new Promise<string>((resolve, reject) => {
+    const child = spawn(bin, args, {
+      env: { ...process.env, CLAUDE_CODE_OAUTH_TOKEN: token },
+      timeout: 90_000,
+    });
+    let out = "";
+    let err = "";
+    child.stdout.on("data", (chunk) => (out += chunk));
+    child.stderr.on("data", (chunk) => (err += chunk));
+    child.on("error", (error) =>
+      reject(
+        new Error(
+          `could not run the claude CLI (${bin}): ${error.message}. Set CLAUDE_CLI_BIN to its absolute path.`,
+        ),
+      ),
+    );
+    child.on("close", (code) => {
+      if (code === 0) resolve(out);
+      else reject(new Error(`claude CLI exited ${code}: ${err.slice(0, 300)}`));
+    });
+  });
+
+  let envelope: { result?: unknown; is_error?: boolean; api_error_status?: number };
+  try {
+    envelope = JSON.parse(stdout);
+  } catch {
+    throw new Error(`claude CLI returned non-JSON output: ${stdout.slice(0, 200)}`);
+  }
+  if (envelope.is_error) {
+    throw new Error(
+      `claude CLI reported an error (status ${envelope.api_error_status ?? "?"}): ${String(
+        envelope.result,
+      ).slice(0, 200)}`,
+    );
+  }
+  return String(envelope.result ?? "");
+}
+
 export async function generateStory(seed: StorySeed): Promise<GeneratedStory> {
-  const { client } = resolveAnthropicClient();
+  const choice = resolveCredential();
 
   let lastError: unknown;
   // The zod refinements (word counts, page counts) are checked client-side and
   // can fail on a wordy page. One retry almost always lands; then fail loud.
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      const response = await client.messages.create({
-        model: STORY_MODEL,
-        max_tokens: 8000,
-        system: systemPrompt(seed.ageMonths),
-        messages: [{ role: "user", content: userPrompt(seed) }],
-      });
-
-      const text = response.content
-        .filter((block) => block.type === "text")
-        .map((block) => block.text)
-        .join("");
+      const text =
+        choice.kind === "subscription"
+          ? await rawTextFromClaudeCli(choice.token, seed)
+          : await rawTextFromSdk(choice.key, seed);
       const json = extractJsonObject(text);
       if (!json) {
-        throw new Error(
-          `model returned no JSON object (stop_reason: ${response.stop_reason})`,
-        );
+        throw new Error("model returned no JSON object");
       }
       return storySchema.parse(JSON.parse(json));
     } catch (error) {
