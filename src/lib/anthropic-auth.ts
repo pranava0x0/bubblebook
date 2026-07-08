@@ -62,6 +62,11 @@ export function resolveAnthropicClient(): {
     return {
       client: new Anthropic({
         authToken: choice.token,
+        // apiKey: null suppresses the SDK's ANTHROPIC_API_KEY env fallback.
+        // Without it, a stray API key in the env would ride along and the
+        // request would carry both Authorization and x-api-key, which the
+        // API rejects with a 401.
+        apiKey: null,
         // Subscription OAuth tokens are only accepted on /v1/messages with
         // this beta header (the same one Claude Code sends).
         defaultHeaders: { "anthropic-beta": "oauth-2025-04-20" },
