@@ -357,3 +357,10 @@ That growth, files getting *slightly* more specific with each session's surprise
   gate until the change is confirmed working, even if he said "finish it up"
   or authorized a merge earlier in the session. Overrides the ship skill's
   merge-on-keyword habit.
+- **Never run `npm run build` (`next build`) while `next dev` is running on the
+  same `.next`.** The production build clobbers the dev server's chunks and the
+  running app then throws `Runtime TypeError: Cannot read properties of undefined
+  (reading 'call')` (a webpack module-factory error that looks like a code bug
+  but isn't). Fix: stop the dev server, `rm -rf .next`, restart. During
+  verification, run `build` only after stopping the preview dev server (or in a
+  separate checkout), then restart dev clean.
