@@ -350,3 +350,10 @@ That growth, files getting *slightly* more specific with each session's surprise
 - **Subscription tokens are for the developer's own use.** Wiring one into an
   app that serves other users is out of policy; keep it to local/personal dev
   and switch deploys to `ANTHROPIC_API_KEY`.
+- **Confirm working before merging a PR (hard rule from Pranava, 2026-07-07).**
+  Green typecheck/tests/build is necessary, not sufficient — the real
+  end-to-end path must be *exercised* (a story actually generated, a page
+  actually loaded) before merge. Open the PR, review, and STOP at the merge
+  gate until the change is confirmed working, even if he said "finish it up"
+  or authorized a merge earlier in the session. Overrides the ship skill's
+  merge-on-keyword habit.
