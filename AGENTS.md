@@ -336,3 +336,17 @@ That growth, files getting *slightly* more specific with each session's surprise
   a cookie in the driven browser (single cookie below ~3.2KB, chunked `.0/.1`
   above). Seed/unseed script pattern lives in the session scratchpad (e2e.cjs);
   test account: pranava.raparla+bubble-e2e@gmail.com.
+- **Two Anthropic OAuth billing entities, easy to confuse:** `ant auth login`
+  / platform.claude.com tokens bill **API credits** (fail "credit balance too
+  low" on a credit-less org); `claude setup-token` tokens bill the **Claude
+  subscription** (Pro/Max). Both authenticate; both are `sk-ant-oat…`-ish; only
+  the billing differs. For "run on my subscription," use `CLAUDE_CODE_OAUTH_TOKEN`
+  + the `anthropic-beta: oauth-2025-04-20` header (what Claude Code sends), not
+  a platform profile. The subscription inference token is **not** in the macOS
+  Keychain `Claude Code-credentials` entry (that holds only per-connector MCP
+  OAuth tokens) and **not** in this sandbox's env — it can't be scavenged;
+  `setup-token` is the user's step. Don't spoof a "You are Claude Code" system
+  prompt to get a subscription token past identity gating — that's circumvention.
+- **Subscription tokens are for the developer's own use.** Wiring one into an
+  app that serves other users is out of policy; keep it to local/personal dev
+  and switch deploys to `ANTHROPIC_API_KEY`.
