@@ -19,18 +19,31 @@ npm run dev
 `.env.local` is already pointed at the live Supabase project for this repo
 (`bubble-book` / `fwhdonlyhnezjnskjvcb`, migrations applied).
 
-### Story generation auth (no API key needed locally)
+### Story generation auth — run it on your Claude subscription
 
-The server uses the official Anthropic SDK with its default credential chain.
-One-time setup on this machine (`ant` is already installed at `~/.local/bin/ant`):
+Story text is generated through the official Anthropic SDK, which resolves a
+credential per request (see [anthropic-auth.ts](src/lib/anthropic-auth.ts)):
 
-```sh
-ant auth login
-```
+1. **`CLAUDE_CODE_OAUTH_TOKEN` (subscription, no API bill).** In a terminal:
 
-That stores an OAuth profile under `~/.config/anthropic/` which the SDK picks
-up automatically. Alternatively set `ANTHROPIC_API_KEY` in `.env.local`
-(required for deployments — serverless has no profile on disk).
+   ```sh
+   claude setup-token
+   ```
+
+   Paste the printed token into `.env.local` as `CLAUDE_CODE_OAUTH_TOKEN`.
+   Inference then bills against your Claude Pro/Max plan (counts toward your
+   usage limits), sent with the `oauth-2025-04-20` beta header the same way
+   Claude Code does. Good for local, personal use.
+
+2. **`ANTHROPIC_API_KEY` (pay-as-you-go).** Set this instead for a real or
+   shared deployment — a subscription token is for your own use, not a
+   backend serving other people.
+
+The subscription token is preferred when both are present. Note: an earlier
+`ant auth login` OAuth profile authenticates against the **developer platform**
+(API credits), not your subscription — that path returns "credit balance too
+low" unless the org has API credits, which is why `setup-token` is the
+subscription route.
 
 ### One manual Supabase step
 

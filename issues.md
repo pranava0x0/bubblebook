@@ -23,3 +23,26 @@ Living audit trail. Each entry: date, area, description, root cause
 - **Lesson:** before debugging "stuck animations" in a driven browser, check
   `document.visibilityState` and whether rAF ticks at all — a hidden tab
   freezes rAF-driven animation and mimics an app bug.
+
+## 2026-07-07 — "Credit balance too low" from the story route
+
+- **Area:** `src/lib/generate-story.ts` auth path.
+- **Symptom:** clicking a theme → "Make my story!" showed the "Uh oh" error
+  card; server log: `400 invalid_request_error … Your credit balance is too low`.
+- **Root cause:** not a code bug. `ant auth login` authenticates against the
+  **developer platform** (API-credit billing); the org has no API credits, so
+  the Messages API rejects the call. The app was reading that profile. A
+  developer-platform OAuth token is a different billing entity from the Claude
+  **subscription**.
+- **Fix:** added `CLAUDE_CODE_OAUTH_TOKEN` support (`src/lib/anthropic-auth.ts`)
+  — a `claude setup-token` subscription token, sent with the
+  `anthropic-beta: oauth-2025-04-20` header, bills against the Claude plan.
+  Falls back to `ANTHROPIC_API_KEY`. Generation switched to prompt-for-JSON +
+  zod validation so it doesn't depend on structured-outputs being available
+  over the OAuth token.
+- **Status:** Fixed in code; live subscription call is pending the user pasting
+  a `setup-token` value (the `claude` CLI isn't reachable from the build
+  sandbox, so it couldn't be minted/verified here).
+- **Lesson:** "OAuth token" is not one thing. platform.claude.com developer
+  tokens bill API credits; `claude setup-token` tokens bill the subscription.
+  A valid token that authenticates fine can still be the wrong *billing* entity.

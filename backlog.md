@@ -18,6 +18,11 @@
   page-count label for longer books.
 - **(low) Supabase dashboard: enable leaked-password protection** (security
   advisor; the app is magic-link-first, so low urgency).
+- **(medium) Verify the subscription generation path end-to-end** once a
+  `claude setup-token` value is in `.env.local`: confirm claude-sonnet-5 over
+  the OAuth token returns a valid story (custom system prompt accepted, not
+  identity-gated). If gated, the legitimate fallbacks are the Agent SDK or an
+  API key — do not spoof the Claude Code identity.
 - **(low) Audio narration** — parent-recorded per page, or TTS.
 - **(low) Anonymous sign-in "Try it" button** (enable anonymous auth in Supabase).
 - **(low) next/image + remotePatterns** once the image host is final (SVG
