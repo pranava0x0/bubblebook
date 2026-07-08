@@ -103,3 +103,31 @@ Long debugging session; two real findings, both fixed.
   3-4 words each) on the subscription; it saved and appears on the shelf.
 - **Lesson:** a Storage `403 violates RLS` is not always an auth problem — rule
   out `x-upsert` (needs the UPDATE policy) before chasing the token.
+
+## 2026-07-08 — Full UAT pass (no app bugs found)
+
+- **Area:** whole app. First automated UAT run (baseline in `uat.md`).
+- **Result:** the complete loop is green end-to-end, verified twice — once in
+  the demo account (via the preview browser + DB) and once in the user's own
+  account (via real foreground Chrome). Generated 2 real stories on the
+  **subscription**: "Happy Little Dog" (19s) and "Hello, Friendly Moon" (14s),
+  both `POST /api/stories 200`, each 5 pages / 2–5 words per page /
+  `target_age_months=24` / one image + descriptive `alt` per page. Character
+  vault auto-saved "Buddy" and linked it. Reader pages cleanly
+  1→2→3→4→5→"The end" with working Prev/Next (`aria-label`s) and back-to-books.
+  Login (logged out), bookshelf populated + empty ("No books yet!") states all
+  render correctly.
+- **Investigated but NOT a bug:** bookshelf cover `<img alt="">` (bookshelf/page.tsx:61).
+  The `<h2>` title is inside the same `<Link>`, so the link's accessible name is
+  the title; the cover is correctly marked decorative to avoid double-announcing.
+  Proper ARIA practice — left as-is.
+- **Testing-environment gotcha (NOT an app bug), recorded so it isn't chased as one:**
+  the preview panel browser runs **backgrounded** (`document.hidden === true`),
+  which freezes React's rAF-gated streaming content-swap → the `loading.tsx`
+  fallback ("Getting your books…") never clears and the DOM shows **two `<main>`
+  elements** (frozen fallback over collapsed real content). The server renders
+  200 in <400ms and the content is present. In real foreground Chrome the same
+  page renders `mainCount:1` with no stuck loading. Same root cause as the
+  2026-07-07 rAF-freeze entry. Verify via live DOM/DB or foreground Chrome, not
+  preview screenshots. Full details in `uat.md` § Exploration Notes.
+- **Status:** No open issues.
