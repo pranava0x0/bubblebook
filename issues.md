@@ -89,11 +89,16 @@ Long debugging session; two real findings, both fixed.
   token to the *same* path with **no** `x-upsert` header returned 200.
 - **Root cause (code bug):** `upsert: true` (→ `x-upsert: true`) makes Storage
   additionally evaluate the UPDATE policy, which fails on a not-yet-existing
-  object. The 403 reads like an auth failure but is the upsert path.
-- **Fix:** `route.ts` uploads via a plain Bearer `POST` (no `x-upsert`); story
-  paths are unique per story so insert is correct. Also switched storage writes
-  off the SSR cookie client (which doesn't reliably carry the JWT server-side)
-  onto the user's access token from `getSession()`.
+  object. The 403 reads like an auth failure but is the upsert path. Isolation
+  tests confirmed `x-upsert` is the *sole* cause: the same authed client uploads
+  fine without it and 403s with it.
+- **Fix:** `route.ts` uploads via `createAuthedClient(...).storage.upload(...)`
+  with **no `upsert`** (paths are unique per story, so insert is correct).
+  `createAuthedClient` (supabase-js `accessToken` option, token from
+  `getSession()`) carries the owner JWT. NOTE: an earlier belief that "the
+  storage client doesn't carry the JWT server-side" was wrong — both the
+  `accessToken` option and `global.headers.Authorization` carry it fine; every
+  failure was `x-upsert`. Full matrix in docs/auth-and-upload-pathways.md.
 - **Status:** Fixed. Verified end-to-end: generated "Big Red Truck" (5 pages,
   3-4 words each) on the subscription; it saved and appears on the shelf.
 - **Lesson:** a Storage `403 violates RLS` is not always an auth problem — rule
