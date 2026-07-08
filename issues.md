@@ -56,3 +56,45 @@ Living audit trail. Each entry: date, area, description, root cause
 - **Lesson:** "OAuth token" is not one thing. platform.claude.com developer
   tokens bill API credits; `claude setup-token` tokens bill the subscription.
   A valid token that authenticates fine can still be the wrong *billing* entity.
+
+## 2026-07-08 — Making story generation actually run on the Claude subscription
+
+Long debugging session; two real findings, both fixed.
+
+### A. Subscription OAuth tokens only work through the Claude Code CLI
+- **Symptom:** a `claude setup-token` token (`sk-ant-oat01-…`) sent to the raw
+  `/v1/messages` endpoint as `Authorization: Bearer` + `anthropic-beta:
+  oauth-2025-04-20` was rejected — `401 Invalid bearer token` early on, then a
+  bare `429 rate_limit_error` (no retry-after / ratelimit headers) once the
+  token was captured cleanly. But `claude -p` with the same token returned a
+  real completion.
+- **Root cause (code/architecture):** subscription tokens authenticate only
+  through Claude Code's own request path; a raw SDK call is soft-blocked. The
+  app was using `@anthropic-ai/sdk` against the raw API.
+- **Fix:** `generate-story.ts` now shells out to the `claude` CLI
+  (`--print --output-format json --append-system-prompt …`) when
+  `CLAUDE_CODE_OAUTH_TOKEN` is set, and keeps the SDK path for
+  `ANTHROPIC_API_KEY`. `CLAUDE_CLI_BIN` points the server at the binary.
+- **Capture gotcha:** `setup-token` prints the token wrapped in TUI color/cursor
+  escapes; headless capture (PTY wrap at 80 cols, plain-pipe buffering, ANSI in
+  the middle of the token) all corrupted it. The reliable capture was running it
+  in a real Terminal.app via `osascript` and reading `contents of tab` (Terminal
+  interprets the ANSI, yielding clean text). The prefix is `sk-ant-oat01-`, not
+  `sk-ant-at01-`.
+
+### B. Storage `x-upsert` trips RLS on a brand-new object
+- **Symptom:** every page-image upload failed `403 new row violates row-level
+  security policy`, even with a valid `authenticated` JWT whose `sub` = the uid
+  and a path whose first folder = the uid. A direct Bearer upload of the *same*
+  token to the *same* path with **no** `x-upsert` header returned 200.
+- **Root cause (code bug):** `upsert: true` (→ `x-upsert: true`) makes Storage
+  additionally evaluate the UPDATE policy, which fails on a not-yet-existing
+  object. The 403 reads like an auth failure but is the upsert path.
+- **Fix:** `route.ts` uploads via a plain Bearer `POST` (no `x-upsert`); story
+  paths are unique per story so insert is correct. Also switched storage writes
+  off the SSR cookie client (which doesn't reliably carry the JWT server-side)
+  onto the user's access token from `getSession()`.
+- **Status:** Fixed. Verified end-to-end: generated "Big Red Truck" (5 pages,
+  3-4 words each) on the subscription; it saved and appears on the shelf.
+- **Lesson:** a Storage `403 violates RLS` is not always an auth problem — rule
+  out `x-upsert` (needs the UPDATE policy) before chasing the token.
