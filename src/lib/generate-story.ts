@@ -1,5 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
-import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
+import { resolveAnthropicClient } from "@/lib/anthropic-auth";
 import { STORY_LIMITS, STORY_MODEL } from "@/lib/constants";
 import { storySchema, type GeneratedStory } from "@/lib/story-schema";
 
@@ -23,7 +22,10 @@ Rules:
 - imagePrompt: one sentence describing that page's picture. Describe the main character the same way on every page, using their exact look. One subject, simple background, no words in the picture.
 - emoji: one emoji matching the page's picture.
 - characters: the 1 or 2 characters in the story, each with a short reusable look (colors, size, one cute detail) so they can be drawn the same way in future stories.
-- Warm and safe. Nothing scary, nothing sad.`;
+- Warm and safe. Nothing scary, nothing sad.
+
+Return ONLY a JSON object, no markdown fences and no words around it, in exactly this shape:
+{"title":"...","pages":[{"text":"...","imagePrompt":"...","emoji":"..."}],"characters":[{"name":"...","look":"...","emoji":"..."}]}`;
 }
 
 export function userPrompt(seed: StorySeed): string {
@@ -34,35 +36,62 @@ export function userPrompt(seed: StorySeed): string {
       ...seed.friends.map((f) => `- ${f.name} — ${f.look}`),
     );
   }
+  parts.push("Respond with only the JSON object.");
   return parts.join("\n");
 }
 
+// The model is told to return bare JSON, but tolerate a stray markdown fence
+// or leading prose by extracting the first balanced {...} object.
+export function extractJsonObject(text: string): string | null {
+  const start = text.indexOf("{");
+  if (start === -1) return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) return text.slice(start, i + 1);
+    }
+  }
+  return null;
+}
+
 export async function generateStory(seed: StorySeed): Promise<GeneratedStory> {
-  // Zero-arg client: credentials resolve from ANTHROPIC_API_KEY if set,
-  // otherwise from the OAuth profile stored by `ant auth login`. Local dev on
-  // a Claude subscription needs no key in .env.local. Constructed lazily so a
-  // missing credential fails this request loudly, not the whole server boot.
-  const client = new Anthropic();
+  const { client } = resolveAnthropicClient();
 
   let lastError: unknown;
-  // Structured outputs guarantee the JSON shape; the zod refinements (word
-  // counts, page counts) are checked client-side and can still fail on a
-  // wordy page. One retry almost always lands; then fail loud.
+  // The zod refinements (word counts, page counts) are checked client-side and
+  // can fail on a wordy page. One retry almost always lands; then fail loud.
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      const response = await client.messages.parse({
+      const response = await client.messages.create({
         model: STORY_MODEL,
         max_tokens: 8000,
         system: systemPrompt(seed.ageMonths),
         messages: [{ role: "user", content: userPrompt(seed) }],
-        output_config: { format: zodOutputFormat(storySchema) },
       });
-      if (response.parsed_output) {
-        return response.parsed_output;
+
+      const text = response.content
+        .filter((block) => block.type === "text")
+        .map((block) => block.text)
+        .join("");
+      const json = extractJsonObject(text);
+      if (!json) {
+        throw new Error(
+          `model returned no JSON object (stop_reason: ${response.stop_reason})`,
+        );
       }
-      throw new Error(
-        `story generation returned no valid object (stop_reason: ${response.stop_reason})`,
-      );
+      return storySchema.parse(JSON.parse(json));
     } catch (error) {
       lastError = error;
       console.error(`[generate-story] attempt ${attempt} failed:`, error);
