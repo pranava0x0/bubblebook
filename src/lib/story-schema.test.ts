@@ -84,4 +84,18 @@ describe("storySchema", () => {
     story.characters = [];
     expect(storySchema.safeParse(story).success).toBe(false);
   });
+
+  it("tolerates a null character emoji and normalizes it to empty", () => {
+    const story = validStory();
+    const raw = { ...story, characters: [{ ...story.characters[0], emoji: null }] };
+    const parsed = storySchema.safeParse(raw);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect(parsed.data.characters[0].emoji).toBe("");
+  });
+
+  it("tolerates a missing character emoji", () => {
+    const story = validStory();
+    const raw = { ...story, characters: [{ name: "Ducky", look: "a small yellow duck" }] };
+    expect(storySchema.safeParse(raw).success).toBe(true);
+  });
 });

@@ -51,7 +51,15 @@ const characterSchema = z
       .describe(
         "A reusable visual description: colors, size, one cute detail. Used to draw them the same way in future stories.",
       ),
-    emoji: z.string().describe("One emoji that best represents this character"),
+    // Cosmetic only (the vault tile, which falls back to ⭐). The model
+    // occasionally returns null here; tolerate it rather than fail the whole
+    // story over a decorative field. Page emoji (which drives the picture)
+    // stays strictly required.
+    emoji: z
+      .string()
+      .nullish()
+      .transform((value) => value ?? "")
+      .describe("One emoji that best represents this character"),
   })
   .superRefine((character, ctx) => {
     if (character.name.trim().length === 0 || character.name.length > 40) {

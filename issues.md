@@ -131,3 +131,26 @@ Long debugging session; two real findings, both fixed.
   2026-07-07 rAF-freeze entry. Verify via live DOM/DB or foreground Chrome, not
   preview screenshots. Full details in `uat.md` § Exploration Notes.
 - **Status:** No open issues.
+
+## 2026-07-08 — Story generation 502s when the model returns a null character emoji
+
+- **Area:** `src/lib/story-schema.ts` (`characterSchema.emoji`).
+- **Symptom:** found during post-review verification — a "ball" generation
+  failed both attempts with `ZodError: characters[0].emoji expected string,
+  got null`, surfacing as `POST /api/stories 502 "The story didn't come out
+  right."` The model reliably returned `emoji: null` for the ball character.
+- **Root cause (code bug):** `characterSchema` required `emoji: z.string()`,
+  but character emoji is **cosmetic and optional everywhere else** — the DB
+  column is nullable, the route stores `c.emoji.trim() || null`, and the vault
+  tile falls back to ⭐ (`character.emoji ?? "⭐"`). The schema was stricter
+  than the app, so a decorative null failed the whole story.
+- **Fix:** `characterSchema.emoji` is now `z.string().nullish().transform((v) =>
+  v ?? "")` — tolerant of null/missing, normalized to "". Page emoji (which
+  drives the placeholder picture) stays strictly required. Regression tests in
+  `story-schema.test.ts` cover null and missing character emoji.
+- **Status:** Fixed. Verified: the same "ball" theme then generated "Bibby the
+  Bouncy Ball" (5 pages, a repeating "Bounce, Bibby, bounce!" refrain) with the
+  character emoji null-but-tolerated, saved and rendered.
+- **Lesson:** validate model output only as strictly as the app actually needs —
+  a required-string schema on a field the rest of the stack treats as optional
+  turns a cosmetic model quirk into a hard user-facing failure.
