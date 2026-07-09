@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { STORAGE_BUCKET, STORY_LIMITS, THEMES } from "@/lib/constants";
+import { DEFAULT_AGE_MONTHS, STORAGE_BUCKET, STORY_LIMITS, THEMES } from "@/lib/constants";
 import { generateStory } from "@/lib/generate-story";
 import { makePageImage } from "@/lib/images";
-import { createClient } from "@/lib/supabase/server";
+import { createAuthedClient, createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
-// Story text is one model call; real image providers add ~10s per page.
-export const maxDuration = 60;
+// The subscription path shells out to the Claude CLI (cold start + generation);
+// real image providers add ~10s per page on top.
+export const maxDuration = 120;
 
 const requestSchema = z
   .object({
@@ -26,6 +27,17 @@ export async function POST(request: Request) {
   if (!user) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   }
+
+  // getUser() validated the session; getSession() gives us its access token so
+  // storage uploads and inserts carry the user's JWT (the cookie client doesn't
+  // attach it to storage — see createAuthedClient).
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session) {
+    return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  }
+  const authed = createAuthedClient(session.access_token);
 
   const parsed = requestSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
@@ -56,12 +68,15 @@ export async function POST(request: Request) {
     }
   }
 
-  const { data: profile } = await supabase
+  const { data: profile, error: profileError } = await supabase
     .from("profiles")
     .select("default_age_months")
     .eq("id", user.id)
     .single();
-  const ageMonths = profile?.default_age_months ?? 24;
+  if (profileError) {
+    console.error("[stories] profile load failed, using default age:", profileError.message);
+  }
+  const ageMonths = profile?.default_age_months ?? DEFAULT_AGE_MONTHS;
 
   const friendNames = friends.map((f) => f.name).join(" and ");
   const description = theme
@@ -97,19 +112,33 @@ export async function POST(request: Request) {
   }
 
   const imagePaths: string[] = [];
+  // Storage and Postgres can't share one transaction, so any DB failure after
+  // an upload would orphan the uploaded objects (they accumulate across every
+  // failed retry). Remove them on every failure path.
+  const cleanupImages = async () => {
+    if (imagePaths.length === 0) return;
+    const { error } = await authed.storage.from(STORAGE_BUCKET).remove(imagePaths);
+    if (error) console.error("[stories] failed to remove orphaned images:", error.message);
+  };
+
   for (const [index, image] of pageImages.entries()) {
     const path = `${user.id}/${storyId}/page-${index + 1}.${image.ext}`;
-    const { error } = await supabase.storage
+    // NO `upsert` — it makes Storage additionally evaluate the UPDATE policy,
+    // which fails RLS on a brand-new object (a 403 that reads like an auth
+    // failure but isn't). Paths are unique per story, so a plain insert is
+    // correct. `authed` carries the user's JWT so RLS sees the owner.
+    const { error } = await authed.storage
       .from(STORAGE_BUCKET)
-      .upload(path, image.bytes, { contentType: image.contentType, upsert: true });
+      .upload(path, image.bytes, { contentType: image.contentType });
     if (error) {
       console.error(`[stories] upload failed for page ${index + 1}:`, error.message);
+      await cleanupImages();
       return NextResponse.json({ error: "Couldn't save the pictures. Try again!" }, { status: 500 });
     }
     imagePaths.push(path);
   }
 
-  const { error: storyError } = await supabase.from("stories").insert({
+  const { error: storyError } = await authed.from("stories").insert({
     id: storyId,
     owner_id: user.id,
     title: story.title,
@@ -120,10 +149,11 @@ export async function POST(request: Request) {
   });
   if (storyError) {
     console.error("[stories] story insert failed:", storyError.message);
+    await cleanupImages();
     return NextResponse.json({ error: "Couldn't save the story. Try again!" }, { status: 500 });
   }
 
-  const { error: pagesError } = await supabase.from("pages").insert(
+  const { error: pagesError } = await authed.from("pages").insert(
     story.pages.map((page, index) => ({
       story_id: storyId,
       page_number: index + 1,
@@ -134,8 +164,19 @@ export async function POST(request: Request) {
   );
   if (pagesError) {
     console.error("[stories] pages insert failed:", pagesError.message);
-    // Don't leave a pageless shell on the shelf.
-    await supabase.from("stories").delete().eq("id", storyId);
+    // Don't leave a pageless shell on the shelf. RLS can make a DELETE a silent
+    // 0-row no-op, so check that the row actually went before trusting it.
+    const { error: delError, count } = await authed
+      .from("stories")
+      .delete({ count: "exact" })
+      .eq("id", storyId);
+    if (delError || !count) {
+      console.error(
+        "[stories] compensating story delete did not remove the row:",
+        delError?.message ?? `rows affected: ${count ?? 0}`,
+      );
+    }
+    await cleanupImages();
     return NextResponse.json({ error: "Couldn't bind the book. Try again!" }, { status: 500 });
   }
 
@@ -148,13 +189,13 @@ export async function POST(request: Request) {
       look: c.look.trim(),
       emoji: c.emoji.trim() || null,
     }));
-    const { error: upsertError } = await supabase
+    const { error: upsertError } = await authed
       .from("characters")
       .upsert(upsertRows, { onConflict: "owner_id,name_key", ignoreDuplicates: true });
     if (upsertError) throw new Error(upsertError.message);
 
     const nameKeys = [...new Set(upsertRows.map((row) => row.name.toLowerCase()))];
-    const { data: saved, error: selectError } = await supabase
+    const { data: saved, error: selectError } = await authed
       .from("characters")
       .select("id")
       .eq("owner_id", user.id)
@@ -163,7 +204,7 @@ export async function POST(request: Request) {
 
     const linkIds = new Set([...(saved ?? []).map((c) => c.id), ...friends.map((f) => f.id)]);
     if (linkIds.size > 0) {
-      const { error: linkError } = await supabase.from("story_characters").upsert(
+      const { error: linkError } = await authed.from("story_characters").upsert(
         [...linkIds].map((characterId) => ({ story_id: storyId, character_id: characterId })),
         { onConflict: "story_id,character_id", ignoreDuplicates: true },
       );

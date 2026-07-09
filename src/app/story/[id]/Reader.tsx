@@ -26,6 +26,17 @@ export default function Reader({ title, pages }: { title: string; pages: ReaderP
     firstRender.current = false;
   }, []);
 
+  // Arrow keys turn pages for a grown-up reading on a laptop. endIndex is stable
+  // (pages never changes), so the functional updater needs no other deps.
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "ArrowRight") setPage(([current]) => [Math.min(current + 1, endIndex), 1]);
+      else if (event.key === "ArrowLeft") setPage(([current]) => [Math.max(current - 1, 0), -1]);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [endIndex]);
+
   function go(delta: number) {
     setPage(([current]) => {
       const next = Math.min(Math.max(current + delta, 0), endIndex);

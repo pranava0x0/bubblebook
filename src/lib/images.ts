@@ -59,7 +59,7 @@ async function openAiImage(prompt: string): Promise<PageImage> {
   const key = requiredEnv("OPENAI_API_KEY");
   const res = await fetch("https://api.openai.com/v1/images/generations", {
     method: "POST",
-    // Fail fast on a hung provider: well under the route's 60s maxDuration so
+    // Fail fast on a hung provider: well under the route's 120s maxDuration so
     // the user gets a real error instead of a gateway timeout.
     signal: AbortSignal.timeout(45_000),
     headers: {

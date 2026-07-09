@@ -85,16 +85,18 @@ Reserve fan-outs for genuinely open-ended research (see [CLAUDE.md → Working w
 
 ## Evaluate every agent run
 
-When a subagent/background task returns, do a 30-second retrospective before consuming the result:
+**Always run this retrospective after any subagent/workflow returns — before consuming the result. Never skip it after an agent run** (Pranava's standing ask). Cover every dimension:
 
 - **Reason**: was an agent right, or would 2–3 inline `grep`/Python calls have done it?
-- **Cost**: flag anything over ~40K tokens per useful result.
-- **Result**: used downstream or wasted? Did it survive verification (grep the "complete" list, confirm the result isn't empty)?
-- **One improvement**: fold the lesson into a *file* (prompt template, `data-sources.md` dead-seam note, backlog entry), not just this reply. If the correction applies to the next run, it doesn't belong only in your head.
+- **Quality of results**: correct and useful, or thin/hallucinated? Did they survive verification — grep the "complete" list, confirm the result object is **non-empty**, spot-check the actual claims against the code (a review that "converges" is only real if the findings are)?
+- **Failures & error resolution**: what errored mid-run (rate-limit, tool error, empty return, schema-retry, a dead finder) and **how was it resolved** — retried, re-prompted, fell back inline, or abandoned? A run that finished *faster/cheaper than expected usually failed* — confirm non-empty output before trusting any metric.
+- **Resumption after network/interruption issues**: if a network drop, rate-limit kill, or session timeout interrupted it, how did it recover? Prefer `Workflow({scriptPath, resumeFromRunId})` — the unchanged `agent()` prefix returns cached results instantly and only the failed tail re-runs; read `journal.jsonl` first (cached results can themselves be empty). Note whether resume actually worked or the whole run got blindly re-paid.
+- **Tokens per value created** (the headline metric): estimate total tokens ÷ units of *real* value produced (verified findings, correct edits, bugs found). Flag anything over ~40K tokens per useful result, and any run whose tokens/value was worse than doing it inline. Record the number, not a vibe.
+- **One improvement → a file**: fold the lesson into a *file* (this section, a prompt template, a backlog entry, `docs/agent-runs.md`), not just the reply. A correction that applies to the next run doesn't belong only in your head.
 
-A solo turn with no spawn has nothing to evaluate. Say so rather than invent analysis.
+A solo turn with no spawn has nothing to evaluate — say so rather than invent analysis.
 
-**Persist the retrospective, don't just perform it.** Keep a running `docs/agent-runs.md` scorecard in the repo and append one row per agent/workflow run: what it did, worked (y/n), quality, ~tokens, and the best-ROI alternative in hindsight. Three separate projects converged on this exact mechanism independently in the same week — that's a signal it's the right default, not a one-off. The point isn't the retrospective (already required above); it's that a retrospective only kept in the reply is invisible to the next session, so the same mistake gets re-paid for.
+**Persist it in `docs/agent-runs.md`, don't just perform it.** Append one row per agent/workflow run: date · what it did · worked (y/n) · quality · ~tokens · **tokens/value** · failures → how resolved · resumed-after-interrupt? · best-ROI alternative in hindsight. Three separate projects converged on this exact mechanism independently in the same week — that's a signal it's the right default. A retrospective kept only in the reply is invisible to the next session, so the same mistake gets re-paid for.
 
 ---
 
@@ -350,3 +352,17 @@ That growth, files getting *slightly* more specific with each session's surprise
 - **Subscription tokens are for the developer's own use.** Wiring one into an
   app that serves other users is out of policy; keep it to local/personal dev
   and switch deploys to `ANTHROPIC_API_KEY`.
+- **Confirm working before merging a PR (hard rule from Pranava, 2026-07-07).**
+  Green typecheck/tests/build is necessary, not sufficient — the real
+  end-to-end path must be *exercised* (a story actually generated, a page
+  actually loaded) before merge. Open the PR, review, and STOP at the merge
+  gate until the change is confirmed working, even if he said "finish it up"
+  or authorized a merge earlier in the session. Overrides the ship skill's
+  merge-on-keyword habit.
+- **Never run `npm run build` (`next build`) while `next dev` is running on the
+  same `.next`.** The production build clobbers the dev server's chunks and the
+  running app then throws `Runtime TypeError: Cannot read properties of undefined
+  (reading 'call')` (a webpack module-factory error that looks like a code bug
+  but isn't). Fix: stop the dev server, `rm -rf .next`, restart. During
+  verification, run `build` only after stopping the preview dev server (or in a
+  separate checkout), then restart dev clean.

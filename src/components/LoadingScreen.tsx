@@ -9,7 +9,7 @@ export default function LoadingScreen({
 }) {
   return (
     <main className="flex min-h-dvh flex-col items-center justify-center gap-4 bg-paper">
-      <span aria-hidden="true" className="animate-pulse text-7xl">
+      <span aria-hidden="true" className="animate-pulse text-7xl motion-reduce:animate-none">
         {emoji}
       </span>
       <p className="text-2xl font-black text-ink-soft">{message}</p>

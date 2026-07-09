@@ -1,10 +1,11 @@
-import Anthropic from "@anthropic-ai/sdk";
-
 // Two ways to reach Claude, in priority order:
 //   1. CLAUDE_CODE_OAUTH_TOKEN — a subscription token from `claude setup-token`.
-//      Inference bills against your Claude Pro/Max plan, not API credits. This
-//      is the "run it on my subscription" path; it needs the oauth beta header.
-//   2. ANTHROPIC_API_KEY — normal pay-as-you-go API billing (for deploys).
+//      Inference bills against your Claude Pro/Max plan. These tokens are only
+//      accepted through the Claude Code CLI's own request path (a raw
+//      /v1/messages call is soft-blocked with a bare 429), so the subscription
+//      backend shells out to the `claude` CLI — see generate-story.ts.
+//   2. ANTHROPIC_API_KEY — normal pay-as-you-go API billing (for deploys),
+//      used via the official SDK.
 export type CredentialChoice =
   | { kind: "subscription"; token: string }
   | { kind: "api"; key: string }
@@ -43,14 +44,10 @@ export class MissingCredentialError extends Error {
     this.name = "MissingCredentialError";
   }
 }
-
-// Built per request so a token added to .env.local is picked up on the next
-// call without a server restart, and a missing token fails this request loudly
-// rather than at boot.
-export function resolveAnthropicClient(): {
-  client: Anthropic;
-  choice: CredentialChoice;
-} {
+// Resolved per request so a credential added to .env.local is picked up on the
+// next call without a server restart, and a missing one fails this request
+// loudly rather than at boot.
+export function resolveCredential(): Exclude<CredentialChoice, { kind: "none" }> {
   const choice = chooseCredential({
     CLAUDE_CODE_OAUTH_TOKEN: process.env.CLAUDE_CODE_OAUTH_TOKEN,
     ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
@@ -58,21 +55,5 @@ export function resolveAnthropicClient(): {
   if (choice.kind === "none") {
     throw new MissingCredentialError();
   }
-  if (choice.kind === "subscription") {
-    return {
-      client: new Anthropic({
-        authToken: choice.token,
-        // apiKey: null suppresses the SDK's ANTHROPIC_API_KEY env fallback.
-        // Without it, a stray API key in the env would ride along and the
-        // request would carry both Authorization and x-api-key, which the
-        // API rejects with a 401.
-        apiKey: null,
-        // Subscription OAuth tokens are only accepted on /v1/messages with
-        // this beta header (the same one Claude Code sends).
-        defaultHeaders: { "anthropic-beta": "oauth-2025-04-20" },
-      }),
-      choice,
-    };
-  }
-  return { client: new Anthropic({ apiKey: choice.key }), choice };
+  return choice;
 }
