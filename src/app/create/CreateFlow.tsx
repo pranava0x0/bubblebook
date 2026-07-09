@@ -180,6 +180,11 @@ export default function CreateFlow({
 
       <div className="fixed inset-x-0 bottom-0 z-20 bg-gradient-to-t from-paper via-paper to-transparent px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-8">
         <div className="mx-auto w-full max-w-3xl">
+          {!canGo && (
+            <p className="mb-3 text-center text-lg font-bold text-ink-soft">
+              Tap a picture to start! 👆
+            </p>
+          )}
           <button
             type="button"
             disabled={!canGo}
