@@ -71,3 +71,18 @@ pages accumulate whenever rAF throttles (backgrounded tab). Keep both transform
 endpoints in the **same unit** (`"100%"` → `"0%"`): mixing percent with numeric
 px forces framer's DOM-measuring unit conversion, a freezable path. First mount
 renders at rest so SSR HTML never carries an offscreen transform.
+
+## Toddler-UX principles (2026-07-08)
+
+- **A control a 2-year-old will tap must never be silently dead.** A `disabled`
+  primary CTA gives a toddler no feedback ("why did nothing happen?"). Pair it
+  with a gentle nudge that appears when it's unavailable ("Tap a picture to
+  start! 👆") — the toddler learns the path, the parent isn't puzzled. Prefer
+  guiding over blocking.
+- **Every ambient animation respects `prefers-reduced-motion`.** framer motion
+  is already gated via `useReducedMotion`; CSS animations aren't, so a bare
+  `animate-pulse` needs `motion-reduce:animate-none` (the loader used to pulse
+  regardless).
+- **Read paths a grown-up uses too.** The reader is toddler-first (big arrows,
+  swipe) but a parent reads on a laptop — arrow-key page turns cost one
+  `useEffect` and make it feel finished.
