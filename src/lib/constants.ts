@@ -65,6 +65,11 @@ export const STORY_LIMITS = {
   maxFriends: 2,
 } as const;
 
+// Default target age when a profile has none (yet). Must match the
+// `default_age_months` / `target_age_months` column defaults in
+// supabase/migrations/0001_init.sql.
+export const DEFAULT_AGE_MONTHS = 24;
+
 // The brief asked for "Claude 3.5 Sonnet", which was retired in Oct 2025;
 // claude-sonnet-5 is its designated replacement. Swap to "claude-haiku-4-5"
 // if cost matters more than polish.
