@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { STORAGE_BUCKET, STORY_LIMITS, THEMES } from "@/lib/constants";
+import { DEFAULT_AGE_MONTHS, STORAGE_BUCKET, STORY_LIMITS, THEMES } from "@/lib/constants";
 import { generateStory } from "@/lib/generate-story";
 import { makePageImage } from "@/lib/images";
 import { createAuthedClient, createClient } from "@/lib/supabase/server";
@@ -68,12 +68,15 @@ export async function POST(request: Request) {
     }
   }
 
-  const { data: profile } = await supabase
+  const { data: profile, error: profileError } = await supabase
     .from("profiles")
     .select("default_age_months")
     .eq("id", user.id)
     .single();
-  const ageMonths = profile?.default_age_months ?? 24;
+  if (profileError) {
+    console.error("[stories] profile load failed, using default age:", profileError.message);
+  }
+  const ageMonths = profile?.default_age_months ?? DEFAULT_AGE_MONTHS;
 
   const friendNames = friends.map((f) => f.name).join(" and ");
   const description = theme
@@ -109,6 +112,15 @@ export async function POST(request: Request) {
   }
 
   const imagePaths: string[] = [];
+  // Storage and Postgres can't share one transaction, so any DB failure after
+  // an upload would orphan the uploaded objects (they accumulate across every
+  // failed retry). Remove them on every failure path.
+  const cleanupImages = async () => {
+    if (imagePaths.length === 0) return;
+    const { error } = await authed.storage.from(STORAGE_BUCKET).remove(imagePaths);
+    if (error) console.error("[stories] failed to remove orphaned images:", error.message);
+  };
+
   for (const [index, image] of pageImages.entries()) {
     const path = `${user.id}/${storyId}/page-${index + 1}.${image.ext}`;
     // NO `upsert` — it makes Storage additionally evaluate the UPDATE policy,
@@ -120,6 +132,7 @@ export async function POST(request: Request) {
       .upload(path, image.bytes, { contentType: image.contentType });
     if (error) {
       console.error(`[stories] upload failed for page ${index + 1}:`, error.message);
+      await cleanupImages();
       return NextResponse.json({ error: "Couldn't save the pictures. Try again!" }, { status: 500 });
     }
     imagePaths.push(path);
@@ -136,6 +149,7 @@ export async function POST(request: Request) {
   });
   if (storyError) {
     console.error("[stories] story insert failed:", storyError.message);
+    await cleanupImages();
     return NextResponse.json({ error: "Couldn't save the story. Try again!" }, { status: 500 });
   }
 
@@ -150,8 +164,19 @@ export async function POST(request: Request) {
   );
   if (pagesError) {
     console.error("[stories] pages insert failed:", pagesError.message);
-    // Don't leave a pageless shell on the shelf.
-    await authed.from("stories").delete().eq("id", storyId);
+    // Don't leave a pageless shell on the shelf. RLS can make a DELETE a silent
+    // 0-row no-op, so check that the row actually went before trusting it.
+    const { error: delError, count } = await authed
+      .from("stories")
+      .delete({ count: "exact" })
+      .eq("id", storyId);
+    if (delError || !count) {
+      console.error(
+        "[stories] compensating story delete did not remove the row:",
+        delError?.message ?? `rows affected: ${count ?? 0}`,
+      );
+    }
+    await cleanupImages();
     return NextResponse.json({ error: "Couldn't bind the book. Try again!" }, { status: 500 });
   }
 
