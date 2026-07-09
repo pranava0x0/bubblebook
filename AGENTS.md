@@ -316,17 +316,41 @@ That growth, files getting *slightly* more specific with each session's surprise
   `~/.local/bin` (first on PATH). `ant` came from the official
   anthropics/anthropic-cli GitHub release — note the assets are
   `ant_<v>_macos_arm64.zip`, not the `darwin_*.tar.gz` some docs suggest.
-- **Driven-browser UAT trap:** the preview tab is frequently *backgrounded* —
-  `document.visibilityState === "hidden"`, zero rAF ticks — which freezes all
-  rAF-driven animation at its first frame and perfectly mimics an app bug.
-  Check visibility/rAF before debugging "stuck animations" (issues.md
-  2026-07-07). Screenshots of a hidden tab still render, which is the trap.
+- **Driven-browser UAT trap:** the preview tab AND the user's Chrome (when
+  driven from the terminal, which can't hold it foreground) are frequently
+  *backgrounded* — `document.visibilityState === "hidden"` — which throttles not
+  just rAF animation but **React hydration and streaming too**. Symptoms that
+  are all the *same* trap, not bugs: stuck `loading.tsx` fallback with two
+  `<main>`s (streaming never swaps), `__reactFiber` absent so clicks/keyboard do
+  nothing (looks unhydrated), frozen page-turns. **Verify around it:** for the
+  generation loop, POST `/api/stories` + read the DB (server-side, visibility-
+  independent); for client interactivity, use the **preview browser** (a headless
+  instance we own — it hydrated `/login` and held a filled input fine on the same
+  build the driven Chrome couldn't hydrate). Don't trust a click/hydration read
+  from a tab reporting `visibilityState:hidden`. (issues.md 2026-07-07; promoted
+  to base CLAUDE.md.)
+- **osascript `execute javascript` gotchas:** it does **not** await Promises
+  (returns immediately), so drive multi-step UI with one page-side `async` fn
+  that awaits internally and writes to `window`, then read that. AppleScript
+  reserved words `before`/`after`/`done` as `set` vars throw "Expected
+  expression"; use `s1`/`s2`. `innerText` omits `sr-only` and off-viewport text
+  — use `textContent` to read the reader's page counter.
 - **Session-limit fan-outs fail silent-ish:** a 4-agent review workflow late in
   a session died on "session limit" for all finders and returned an
   empty-but-completed result after ~510K subagent tokens. Always read the
   failures block and confirm the result is non-empty; fall back to an inline
   single-author review (it found 5 real findings here); don't relaunch before
   the limit resets.
+- **The workflow's serial synth step is the long-pole:** the 2026-07-08
+  4-perspective review (author/UX/web-dev/architect finders → synth) had all 4
+  finders return 27 strong findings, then the single consolidation agent
+  **stalled ~2min** mid-stream. Recovery: `TaskStop` + read each finder's
+  `StructuredOutput` from `subagents/workflows/<runId>/agent-*.jsonl` and do the
+  verify/dedup/disposition **inline** (I'd already read the whole codebase — so
+  delegating consolidation was avoidable anyway). Cost was ~9.5M tokens /
+  ~175K per finding — over budget for a <500-line diff; the 4-lens breadth was
+  the *explicit request*, else 2 finders (or inline) would've surfaced most.
+  Scorecard row in `docs/agent-runs.md`.
 - **Supabase specifics proven live:** supabase-js `upsert` with
   `onConflict: "owner_id,name_key"` works against a unique index on a
   *generated column*; run `get_advisors(security)` after any DDL (it caught an
