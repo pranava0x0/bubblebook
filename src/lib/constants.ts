@@ -56,13 +56,27 @@ export const THEMES: readonly Theme[] = [
 ] as const;
 
 export const STORY_LIMITS = {
-  minPages: 3,
-  maxPages: 5,
+  minPages: 8,
+  maxPages: 12,
+  // A page is 1-2 short sentences. The floor keeps a bare refrain page
+  // ("Splash, splash, splash!") legal; the ceiling keeps a page readable in one
+  // breath at the reader's 3rem type.
   minWordsPerPage: 2,
-  maxWordsPerPage: 5,
+  maxWordsPerPage: 16,
+  maxSentencesPerPage: 2,
   maxTitleWords: 4,
   maxCharacters: 3,
   maxFriends: 2,
+} as const;
+
+// Illustration is one Claude call per batch of pages, batches run in parallel.
+// Two pages per batch is empirical: four pages of SVG runs past even a generous
+// per-call timeout. Because batches can't see each other, a cast sheet of exact
+// hex colors is drawn up first and handed to every batch — that, not the batch
+// size, is what keeps a character the same red on page 2 and page 11.
+export const ILLUSTRATION = {
+  batchSize: 2,
+  maxSvgChars: 20_000,
 } as const;
 
 // Default target age when a profile has none (yet). Must match the

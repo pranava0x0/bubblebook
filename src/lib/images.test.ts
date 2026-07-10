@@ -1,5 +1,30 @@
 import { describe, expect, it } from "vitest";
-import { escapeXml, placeholderSvg } from "@/lib/images";
+import { escapeXml, placeholderSvg, resolveImageProvider } from "@/lib/images";
+
+describe("resolveImageProvider", () => {
+  it("draws with Claude by default, on the same credential that writes the story", () => {
+    expect(resolveImageProvider({ hasClaudeCredential: true })).toBe("claude");
+  });
+
+  it("honours an explicit IMAGE_PROVIDER over every default", () => {
+    const env = { hasClaudeCredential: true, OPENAI_API_KEY: "sk-x" };
+    expect(resolveImageProvider({ ...env, IMAGE_PROVIDER: "placeholder" })).toBe("placeholder");
+    expect(resolveImageProvider({ ...env, IMAGE_PROVIDER: "openai" })).toBe("openai");
+  });
+
+  it("ignores an unknown IMAGE_PROVIDER rather than trusting it", () => {
+    expect(resolveImageProvider({ IMAGE_PROVIDER: "midjourney", hasClaudeCredential: true })).toBe(
+      "claude",
+    );
+  });
+
+  it("falls back to a keyed provider, then to placeholder art", () => {
+    expect(resolveImageProvider({ hasClaudeCredential: false, OPENAI_API_KEY: "sk-x" })).toBe(
+      "openai",
+    );
+    expect(resolveImageProvider({ hasClaudeCredential: false })).toBe("placeholder");
+  });
+});
 
 describe("escapeXml", () => {
   it("escapes every markup-significant character", () => {
