@@ -5,11 +5,13 @@
   *within* a book. Across books it drifts: a summoned friend is redrawn from its
   `look` text alone. Persist the cast sheet (hexes + proportions) on
   `characters` alongside a cached `image_path`, and feed it to later stories.
-- **(medium) Illustration latency.** A 12-page book is 1 cast-sheet call plus 6
-  parallel 2-page batches: ~75s of drawing on top of ~40s of writing (measured).
-  Fine on a laptop; `maxDuration` is now 300s, which a Vercel cold start could
-  still walk into. If it bites, stream pages into the reader as they land rather
-  than blocking the whole POST.
+- **(high) Illustration latency.** A 12-page book is now three model stages back
+  to back: write (~25s) → art-direct (~55s) → draw (6 parallel 2-page batches,
+  ~155s), plus a redraw pass when a batch drops — measured ~235s, worst case can
+  brush the 300s `maxDuration`. Harmless self-hosted (the cap is a Vercel
+  serverless hint `next start` ignores), but a real fix is worth it: stream the
+  story text into the reader immediately, then fill each page's art in as its
+  batch lands, instead of blocking the whole POST on the last picture.
 - **(low) OpenAI `gpt-image-1` path is still unverified** against a live key. No
   longer on the default route (Claude draws, keyless), so it only matters if a
   deploy wants raster art. Verify contract/pricing/ToS first.

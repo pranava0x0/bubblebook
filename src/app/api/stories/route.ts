@@ -6,8 +6,8 @@ import { makeStoryImages } from "@/lib/illustrate";
 import { createAuthedClient, createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
-// The subscription path shells out to the Claude CLI (cold start + generation),
-// then draws 8-12 pages in parallel batches on top of that.
+// Three model stages back to back: write the story, art-direct it, then draw
+// 8-12 pages in parallel batches — all over the Claude CLI (cold start each).
 export const maxDuration = 300;
 
 const requestSchema = z
@@ -98,9 +98,11 @@ export async function POST(request: Request) {
 
   const storyId = crypto.randomUUID();
 
-  let pageImages;
+  // Art direction + drawing is its own layer over the finished story: it writes
+  // a scene per page and returns the image alongside it.
+  let illustrated;
   try {
-    pageImages = await makeStoryImages(story);
+    illustrated = await makeStoryImages(story);
   } catch (error) {
     console.error("[stories] image generation failed:", error);
     return NextResponse.json(
@@ -108,6 +110,7 @@ export async function POST(request: Request) {
       { status: 502 },
     );
   }
+  const pageImages = illustrated.map((page) => page.image);
 
   const imagePaths: string[] = [];
   // Storage and Postgres can't share one transaction, so any DB failure after
@@ -156,7 +159,7 @@ export async function POST(request: Request) {
       story_id: storyId,
       page_number: index + 1,
       text: page.text,
-      image_prompt: page.imagePrompt,
+      image_prompt: illustrated[index].imagePrompt,
       image_path: imagePaths[index],
     })),
   );

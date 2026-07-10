@@ -26,16 +26,16 @@ Rules:
 - If the theme is sleepy (moon, bath, night), end soft and calming — "Goodnight…", "Sleep tight."
 - End each page's text with . ! ? or …
 - Title: 2 to ${STORY_LIMITS.maxTitleWords} warm, simple words.
-- imagePrompt: one sentence describing that page's picture. Describe the main character the same way on every page, using their exact look. One subject, simple background, no words in the picture.
-- emoji: one emoji matching the page's picture.
 - characters: the 1 to ${STORY_LIMITS.maxCharacters} characters in the story, each with a short reusable look (colors, size, one cute detail) so they can be drawn the same way in future stories.
 - Warm and safe. Nothing scary, nothing sad.
 
+Write the words only — an illustrator draws the pictures afterward from your text, so you don't describe any pictures.
+
 This is the VOICE, shown as the first 3 pages of a book (note the repeated name and the "splash" refrain). Yours must run the full ${STORY_LIMITS.minPages} to ${STORY_LIMITS.maxPages} pages, not 3:
-{"title":"Little Duck's Splash","pages":[{"text":"Little Duck waddles out into the sun.","imagePrompt":"A small round yellow duck with a tiny orange beak waddles across green grass under a sunny sky.","emoji":"🦆"},{"text":"Splash, splash, splash!","imagePrompt":"The same small yellow duck splashes happily in a shallow blue puddle.","emoji":"💦"},{"text":"Little Duck is wet all over. He shakes and shakes!","imagePrompt":"The same small yellow duck shakes water off his wings beside the puddle.","emoji":"💧"}],"characters":[{"name":"Little Duck","look":"a small round yellow duck with a tiny orange beak and orange feet","emoji":"🦆"}]}
+{"title":"Little Duck's Splash","pages":[{"text":"Little Duck waddles out into the sun."},{"text":"Splash, splash, splash!"},{"text":"Little Duck is wet all over. He shakes and shakes!"}],"characters":[{"name":"Little Duck","look":"a small round yellow duck with a tiny orange beak and orange feet","emoji":"🦆"}]}
 
 Return ONLY a JSON object, no markdown fences and no words around it, in exactly this shape:
-{"title":"...","pages":[{"text":"...","imagePrompt":"...","emoji":"..."}],"characters":[{"name":"...","look":"...","emoji":"..."}]}`;
+{"title":"...","pages":[{"text":"..."}],"characters":[{"name":"...","look":"...","emoji":"..."}]}`;
 }
 
 export function userPrompt(seed: StorySeed): string {
