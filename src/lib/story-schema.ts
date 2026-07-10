@@ -10,6 +10,18 @@ export function countWords(text: string): number {
     .filter(Boolean).length;
 }
 
+// An ellipsis ends a sentence too: the brief asks sleepy books to close on
+// "Goodnight…", so treating it as a fragment would reject a page we asked for.
+const SENTENCE_END = /[.!?…]/;
+
+// Counts sentences by terminal punctuation. A run of terminators ("Wow!!") is
+// one sentence; a trailing fragment carrying no terminator counts as none, and
+// the terminator check below rejects that separately so it can't slip through.
+export function countSentences(text: string): number {
+  const sentences = text.match(/[^.!?…]+[.!?…]+/g) ?? [];
+  return sentences.filter((sentence) => countWords(sentence) > 0).length;
+}
+
 // Constraints live in superRefine, not in .min()/.max(): Anthropic structured
 // outputs reject JSON-schema string/array constraints (minLength, minItems),
 // while zod refinements stay client-side and still gate the parsed object.
@@ -17,7 +29,9 @@ const pageSchema = z
   .object({
     text: z
       .string()
-      .describe('The page text: 2 to 5 simple words, e.g. "Big truck goes fast!"'),
+      .describe(
+        'The page text: 1 or 2 short sentences, 2 to 16 words total, e.g. "The big red truck rumbles up the hill. Beep, beep!"',
+      ),
     imagePrompt: z
       .string()
       .describe(
@@ -26,12 +40,28 @@ const pageSchema = z
     emoji: z.string().describe("One emoji that matches this page's picture"),
   })
   .superRefine((page, ctx) => {
-    const words = countWords(page.text);
+    const text = page.text.trim();
+    const words = countWords(text);
     if (words < STORY_LIMITS.minWordsPerPage || words > STORY_LIMITS.maxWordsPerPage) {
       ctx.addIssue({
         code: "custom",
         path: ["text"],
         message: `page text must be ${STORY_LIMITS.minWordsPerPage}-${STORY_LIMITS.maxWordsPerPage} words, got ${words}`,
+      });
+    }
+    if (!SENTENCE_END.test(text.slice(-1))) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["text"],
+        message: "page text must end with . ! ? or …",
+      });
+    }
+    const sentences = countSentences(text);
+    if (sentences < 1 || sentences > STORY_LIMITS.maxSentencesPerPage) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["text"],
+        message: `page text must be 1-${STORY_LIMITS.maxSentencesPerPage} sentences, got ${sentences}`,
       });
     }
     if (page.imagePrompt.trim().length < 8) {

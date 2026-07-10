@@ -88,13 +88,34 @@ async function openAiImage(prompt: string): Promise<PageImage> {
   };
 }
 
+export type ImageProvider = "claude" | "openai" | "placeholder";
+
+// `claude` (the default whenever a Claude credential exists) has the model draw
+// each page as SVG on the same subscription that writes the story. `openai`
+// needs a key and bills per image. `placeholder` is the keyless floor: one big
+// emoji on a flat scene.
+export function resolveImageProvider(env: {
+  IMAGE_PROVIDER?: string;
+  OPENAI_API_KEY?: string;
+  hasClaudeCredential: boolean;
+}): ImageProvider {
+  const explicit = env.IMAGE_PROVIDER?.trim();
+  if (explicit === "claude" || explicit === "openai" || explicit === "placeholder") {
+    return explicit;
+  }
+  if (env.hasClaudeCredential) return "claude";
+  if (env.OPENAI_API_KEY) return "openai";
+  return "placeholder";
+}
+
+// One page, for the providers that draw a page at a time. The `claude` provider
+// works a batch of pages at once (see illustrate.ts), so it isn't reachable here.
 export async function makePageImage(input: {
   prompt: string;
   emoji: string;
+  provider: Exclude<ImageProvider, "claude">;
 }): Promise<PageImage> {
-  const provider =
-    process.env.IMAGE_PROVIDER ?? (process.env.OPENAI_API_KEY ? "openai" : "placeholder");
-  if (provider === "openai") {
+  if (input.provider === "openai") {
     return openAiImage(input.prompt);
   }
   return {

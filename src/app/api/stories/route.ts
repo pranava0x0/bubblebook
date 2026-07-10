@@ -2,13 +2,13 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { DEFAULT_AGE_MONTHS, STORAGE_BUCKET, STORY_LIMITS, THEMES } from "@/lib/constants";
 import { generateStory } from "@/lib/generate-story";
-import { makePageImage } from "@/lib/images";
+import { makeStoryImages } from "@/lib/illustrate";
 import { createAuthedClient, createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
-// The subscription path shells out to the Claude CLI (cold start + generation);
-// real image providers add ~10s per page on top.
-export const maxDuration = 120;
+// The subscription path shells out to the Claude CLI (cold start + generation),
+// then draws 8-12 pages in parallel batches on top of that.
+export const maxDuration = 300;
 
 const requestSchema = z
   .object({
@@ -100,9 +100,7 @@ export async function POST(request: Request) {
 
   let pageImages;
   try {
-    pageImages = await Promise.all(
-      story.pages.map((page) => makePageImage({ prompt: page.imagePrompt, emoji: page.emoji })),
-    );
+    pageImages = await makeStoryImages(story);
   } catch (error) {
     console.error("[stories] image generation failed:", error);
     return NextResponse.json(
