@@ -48,14 +48,9 @@ describe("countSentences", () => {
   });
 });
 
-// A page of each legal shape: a two-sentence page, a one-sentence page, and a
-// bare refrain page.
+// Pages carry text only now — the picture is a separate art-direction pass.
 function page(text: string) {
-  return {
-    text,
-    imagePrompt: "The small yellow duck with a red boot stands by a blue pond.",
-    emoji: "🦆",
-  };
+  return { text };
 }
 
 function validStory(): GeneratedStory {

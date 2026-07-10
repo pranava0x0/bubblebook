@@ -22,6 +22,10 @@ export function countSentences(text: string): number {
   return sentences.filter((sentence) => countWords(sentence) > 0).length;
 }
 
+// The story layer writes only words. The picture for each page — scene and
+// emoji — is a separate art-direction pass over the finished story (see
+// src/lib/illustrate.ts), so the writer can spend its whole attention on text.
+//
 // Constraints live in superRefine, not in .min()/.max(): Anthropic structured
 // outputs reject JSON-schema string/array constraints (minLength, minItems),
 // while zod refinements stay client-side and still gate the parsed object.
@@ -32,12 +36,6 @@ const pageSchema = z
       .describe(
         'The page text: 1 or 2 short sentences, 2 to 16 words total, e.g. "The big red truck rumbles up the hill. Beep, beep!"',
       ),
-    imagePrompt: z
-      .string()
-      .describe(
-        "One sentence describing this page's picture. Repeat the character's exact look every time.",
-      ),
-    emoji: z.string().describe("One emoji that matches this page's picture"),
   })
   .superRefine((page, ctx) => {
     const text = page.text.trim();
@@ -63,13 +61,6 @@ const pageSchema = z
         path: ["text"],
         message: `page text must be 1-${STORY_LIMITS.maxSentencesPerPage} sentences, got ${sentences}`,
       });
-    }
-    if (page.imagePrompt.trim().length < 8) {
-      ctx.addIssue({ code: "custom", path: ["imagePrompt"], message: "image prompt too short" });
-    }
-    const emoji = page.emoji.trim();
-    if (emoji.length === 0 || emoji.length > 8) {
-      ctx.addIssue({ code: "custom", path: ["emoji"], message: "need exactly one emoji" });
     }
   });
 

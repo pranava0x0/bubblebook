@@ -21,11 +21,7 @@ const PAGES = [
 ];
 const VALID_STORY = JSON.stringify({
   title: "Little Duck",
-  pages: PAGES.map((text) => ({
-    text,
-    imagePrompt: "a small yellow duck with a red boot",
-    emoji: "🦆",
-  })),
+  pages: PAGES.map((text) => ({ text })),
   characters: [{ name: "Duck", look: "a small yellow duck", emoji: "🦆" }],
 });
 const INVALID_STORY = '{"title":"x","pages":[],"characters":[]}';
@@ -65,10 +61,15 @@ describe("prompts", () => {
   it("system prompt states the JSON shape and the page/word limits", () => {
     const p = systemPrompt(24);
     expect(p).toContain("JSON object");
-    expect(p).toContain("imagePrompt");
     expect(p).toContain(`${STORY_LIMITS.minPages} to ${STORY_LIMITS.maxPages} pages`);
     expect(p).toMatch(/1 or 2 short sentences/);
     expect(p).toContain(`${STORY_LIMITS.maxWordsPerPage} words`);
+  });
+
+  it("system prompt keeps the writer to words only — pictures are a later pass", () => {
+    const p = systemPrompt(24);
+    expect(p).not.toContain("imagePrompt");
+    expect(p).toMatch(/illustrator draws the pictures afterward/i);
   });
 
   it("user prompt asks for the full page count, so the 3-page example isn't copied", () => {

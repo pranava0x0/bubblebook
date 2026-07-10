@@ -1,15 +1,65 @@
 import { describe, expect, it } from "vitest";
 import { ILLUSTRATION } from "@/lib/constants";
 import {
+  artDirectorUserPrompt,
+  derivePlan,
   illustratorSystemPrompt,
   illustratorUserPrompt,
   parseIllustrations,
   sanitizeSvg,
+  styleSheetFrom,
+  type ArtPlan,
+  type StoryForArt,
 } from "@/lib/illustrate";
+
+const STORY: StoryForArt = {
+  title: "Biscuit's Big Wag",
+  pages: [{ text: "Biscuit is a happy little dog." }, { text: "Wag, wag, wag!" }],
+  characters: [{ name: "Biscuit", look: "a round brown puppy with a red collar", emoji: "🐶" }],
+};
 
 const OK_SVG =
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">' +
   '<circle cx="512" cy="512" r="300" fill="#FFD84D" stroke="#2E2A28" stroke-width="12"/></svg>';
+
+describe("artDirectorUserPrompt", () => {
+  it("hands over the title, cast, and every page text in order", () => {
+    const prompt = artDirectorUserPrompt(STORY);
+    expect(prompt).toContain("Biscuit's Big Wag");
+    expect(prompt).toContain("Biscuit: a round brown puppy with a red collar");
+    expect(prompt).toContain("1. Biscuit is a happy little dog.");
+    expect(prompt).toContain("2. Wag, wag, wag!");
+  });
+});
+
+describe("derivePlan", () => {
+  it("produces a drawable scene and an emoji for every page without a model", () => {
+    const plan = derivePlan(STORY);
+    expect(plan.pages).toHaveLength(STORY.pages.length);
+    expect(plan.pages[0].scene).toContain("Biscuit");
+    expect(plan.pages[0].scene).toContain("Biscuit is a happy little dog.");
+    expect(plan.pages.every((p) => p.emoji.length > 0)).toBe(true);
+    expect(plan.cast[0].name).toBe("Biscuit");
+  });
+
+  it("falls back to a book emoji when the lead has none", () => {
+    const plan = derivePlan({ ...STORY, characters: [{ name: "Biscuit", look: "a puppy" }] });
+    expect(plan.pages[0].emoji).toBe("📖");
+  });
+});
+
+describe("styleSheetFrom", () => {
+  it("serializes the palette and one line per character", () => {
+    const plan: ArtPlan = {
+      palette: { sky: "#BEE7FB", ground: "#CFE8B8", outline: "#2E2A28" },
+      cast: [{ name: "Biscuit", sheet: "body #8B5E3C, collar #D9403A" }],
+      pages: [{ page: 1, scene: "Biscuit wags", emoji: "🐶" }],
+    };
+    const sheet = styleSheetFrom(plan);
+    expect(sheet).toContain("PALETTE: sky #BEE7FB, ground #CFE8B8, outline #2E2A28");
+    expect(sheet).toContain("Biscuit: body #8B5E3C, collar #D9403A");
+  });
+});
 
 describe("parseIllustrations", () => {
   it("pulls one SVG per page marker", () => {
@@ -84,6 +134,23 @@ describe("sanitizeSvg", () => {
     expect(sanitizeSvg('<svg xmlns="http://www.w3.org/2000/svg"><circle r="1"/></svg>')).toBeNull();
   });
 
+  // A repeated attribute is fatal XML — the browser fails to render the image
+  // entirely — but tags and content are otherwise fine, so only a
+  // well-formedness check catches it. Observed live: two `stroke=`s on one path.
+  it("rejects a duplicate attribute on one element", () => {
+    const dup =
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">' +
+      '<circle cx="512" cy="512" r="300" stroke="#2E2A28" stroke="#111111" fill="#FFD84D"/></svg>';
+    expect(sanitizeSvg(dup)).toBeNull();
+  });
+
+  it("keeps distinct hyphenated attributes like stroke-width and stroke", () => {
+    const ok =
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">' +
+      '<circle cx="1" cy="1" r="1" stroke="#2E2A28" stroke-width="12" fill="#FFF"/></svg>';
+    expect(sanitizeSvg(ok)).toBe(ok);
+  });
+
   it("rejects a runaway drawing", () => {
     const huge =
       '<svg viewBox="0 0 1 1">' +
@@ -94,51 +161,21 @@ describe("sanitizeSvg", () => {
 });
 
 describe("illustrator prompts", () => {
-  it("bans text and demands one consistent cast", () => {
+  it("bans text and demands the cast stay consistent", () => {
     const prompt = illustratorSystemPrompt();
     expect(prompt).toMatch(/NO text, letters, or numbers/);
     expect(prompt).toMatch(/CONSISTENCY/);
-    expect(prompt).toContain("viewBox=\"0 0 1024 1024\"");
-  });
-
-  it("names the cast and numbers each page it asks for", () => {
-    const prompt = illustratorUserPrompt(
-      [{ name: "Ducky", look: "a small yellow duck with one red boot" }],
-      [{ pageNumber: 5, imagePrompt: "Ducky splashes", emoji: "💦" }],
-      "",
-    );
-    expect(prompt).toContain("Ducky: a small yellow duck with one red boot");
-    expect(prompt).toContain("[page 5] Ducky splashes");
-  });
-
-  it("omits the cast block when there are no characters", () => {
-    const prompt = illustratorUserPrompt(
-      [],
-      [{ pageNumber: 1, imagePrompt: "a truck", emoji: "🚚" }],
-      "",
-    );
-    expect(prompt).not.toMatch(/cast/i);
+    expect(prompt).toContain('viewBox="0 0 1024 1024"');
   });
 
   // Batches are drawn by separate calls that never see each other's output, so
-  // the sheet is the only thing keeping the same duck the same yellow.
-  it("passes the style sheet verbatim into every batch", () => {
-    const sheet = "PALETTE: sky #BEE7FB\nDucky: body #FFD84D";
-    const prompt = illustratorUserPrompt(
-      [{ name: "Ducky", look: "a small yellow duck" }],
-      [{ pageNumber: 1, imagePrompt: "Ducky waddles", emoji: "🦆" }],
-      sheet,
-    );
-    expect(prompt).toContain(sheet);
+  // the style sheet is the only thing keeping the same dog the same colors.
+  it("passes the style sheet and numbers each page it asks for", () => {
+    const prompt = illustratorUserPrompt("PALETTE: sky #BEE7FB\nBiscuit: body #8B5E3C", [
+      { pageNumber: 5, scene: "Biscuit wags his tail", emoji: "🐶" },
+    ]);
+    expect(prompt).toContain("PALETTE: sky #BEE7FB");
     expect(prompt).toMatch(/no substitutions/i);
-  });
-
-  it("omits the style-sheet block when the sheet is missing", () => {
-    const prompt = illustratorUserPrompt(
-      [{ name: "Ducky", look: "a small yellow duck" }],
-      [{ pageNumber: 1, imagePrompt: "Ducky waddles", emoji: "🦆" }],
-      "   ",
-    );
-    expect(prompt).not.toMatch(/STYLE SHEET/);
+    expect(prompt).toContain("[page 5] Biscuit wags his tail");
   });
 });

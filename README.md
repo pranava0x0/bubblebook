@@ -61,22 +61,36 @@ already applied.
 ### Illustrations
 
 Claude draws them, on the same credential that writes the story — no image key,
-no per-image bill. It writes SVG: flat vector shapes, thick outlines, one big
-subject per page.
+no per-image bill. Three layers, run in order over one POST:
 
-Pages are drawn two at a time, batches in parallel, because four pages of SVG
-in one reply runs past any reasonable timeout. Batches can't see each other, so
-a first short call fixes a **cast sheet** — exact hex colors and proportions per
-character — that every batch must obey. That's what keeps the same dog the same
-brown on page 2 and page 11.
+1. **Story** (`generate-story.ts`) writes *only words* — title, pages, cast.
+   The writer never describes a picture, so it spends its whole attention on
+   the text.
+2. **Art direction** (`planArt` in `illustrate.ts`) reads the finished story and
+   returns a JSON **visual plan**: a shared palette, a per-character style sheet
+   with exact hexes and a signature detail, and a tight, specific scene for
+   every page — deliberately varying the framing (close-up, wide, from behind,
+   bird's-eye) so the book doesn't read as the same centered pose twelve times.
+   Giving this its own pass, with the whole story in view, is what makes the
+   pictures specific instead of loose.
+3. **Drawing** (`illustrate.ts`) turns each scene into an SVG. Pages go two per
+   call, calls in parallel (four pages of SVG in one reply runs past the
+   timeout). Every call is handed the same style sheet, which is what keeps the
+   character identical across calls that never see each other's output. A whole
+   batch can fail at once, so a second pass redraws just the still-missing pages.
 
-Model-authored SVG is never trusted: `sanitizeSvg` (`src/lib/illustrate.ts`)
-allowlists the drawing elements and rejects anything that can script, fetch, or
-embed. A page whose art fails to arrive or fails the sanitizer falls back to
-placeholder art (one big emoji on a flat scene) rather than sinking the book.
+Model-authored SVG is never trusted: `sanitizeSvg` allowlists the drawing
+elements, rejects anything that can script/fetch/embed, **and** rejects
+malformed XML (a duplicate attribute makes the browser fail to render the image
+at all). A page that fails to arrive, fails the sanitizer, or fails the retry
+falls back to placeholder art (one big emoji on a flat scene) rather than
+sinking the book — the fallback is always a valid picture, never a broken one.
 
-`IMAGE_PROVIDER` overrides the default: `openai` (gpt-image-1, needs
-`OPENAI_API_KEY`, still unverified against a live key) or `placeholder`.
+The art-direction plan also feeds the non-Claude providers (its scene text is
+the prompt, its emoji the placeholder). `IMAGE_PROVIDER` overrides the default:
+`openai` (gpt-image-1, needs `OPENAI_API_KEY`, still unverified against a live
+key) or `placeholder`. With no Claude credential at all, the plan is derived
+from the story text so the keyless path still works.
 
 ## Verify
 
@@ -91,12 +105,12 @@ npm run typecheck && npm test && npm run build
 | `src/app/bookshelf/` | cover-grid history of saved stories |
 | `src/app/create/` | the tap-a-picture story wizard + character vault grid |
 | `src/app/story/[id]/` | full-screen board-book reader (swipe or giant arrows) |
-| `src/app/api/stories/` | POST: generate story → images → save story/pages/characters |
+| `src/app/api/stories/` | POST: write story → art-direct → draw → save story/pages/characters |
 | `src/app/login/`, `src/app/auth/` | email magic-link auth |
-| `src/lib/story-schema.ts` | zod contract for generated stories (word/sentence/page limits) |
-| `src/lib/generate-story.ts` | the authoring brief + the story call |
+| `src/lib/story-schema.ts` | zod contract for the story text (word/sentence/page limits) |
+| `src/lib/generate-story.ts` | the authoring brief + the story call (words only) |
 | `src/lib/claude.ts` | one text-in/text-out call to Claude (CLI or SDK transport) |
-| `src/lib/illustrate.ts` | Claude draws each page as SVG: cast sheet, batching, sanitizer |
+| `src/lib/illustrate.ts` | art direction (visual plan) + Claude draws each page as SVG |
 | `src/lib/images.ts` | provider choice + placeholder SVG art + OpenAI provider |
 | `src/lib/constants.ts` | themes, tile colors, limits, model id — single source |
 | `supabase/migrations/` | schema + RLS + storage policies (applied to the live project) |
