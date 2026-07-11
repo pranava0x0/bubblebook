@@ -1,21 +1,34 @@
 # Backlog
 
-- **(high) Real illustration provider.** Placeholder SVG art ships by default;
-  the OpenAI `gpt-image-1` path is wired but unverified against a live key.
-  Before committing: verify contract/pricing/ToS per CLAUDE.md, then use each
-  character's stored `look` for cross-story consistency. Consider caching
-  generated character art on `characters.image_path`.
+- **(medium) Cross-STORY character consistency.** Claude now draws each page
+  (`src/lib/illustrate.ts`), and a per-story cast sheet keeps a character stable
+  *within* a book. Across books it drifts: a summoned friend is redrawn from its
+  `look` text alone. Persist the cast sheet (hexes + proportions) on
+  `characters` alongside a cached `image_path`, and feed it to later stories.
+- **(high) Illustration latency + timeout budget.** A 12-page book is now three
+  model stages back to back: write (~25s) → art-direct (~55s) → draw (6 parallel
+  2-page batches, ~155s), plus a redraw pass when a batch drops — measured ~235s.
+  Worst case the *internal* per-stage timeouts don't fit the platform budget:
+  story 90s + art 90s + two draw passes at 180s each = 540s against a 300s
+  `maxDuration`, so a merely-slow run gets cut off by the platform before the
+  page-by-page placeholder fallback can finish. Harmless self-hosted (`next
+  start` ignores the cap), but the real fix earns its keep: stream the story
+  text into the reader immediately, then fill each page's art in as its batch
+  lands, instead of blocking the whole POST on the last picture — which also
+  makes the internal timeouts moot.
+- **(low) OpenAI `gpt-image-1` path is still unverified** against a live key. No
+  longer on the default route (Claude draws, keyless), so it only matters if a
+  deploy wants raster art. Verify contract/pricing/ToS first.
 - **(high) Age dial.** Parent settings UI for `profiles.default_age_months` +
-  a prompt ladder (18–36mo: 2–5 words; 3–4y: short sentences; 5y+: paragraphs,
-  10 pages, quizzes). Schema already carries `target_age_months` per story.
+  a prompt ladder (18–36mo: 2–5 words; 3–4y: the current 1–2 sentences; 5y+:
+  paragraphs, quizzes). Schema already carries `target_age_months` per story.
+  Note the floor moved: every story is now 8–12 pages of 1–2 sentences, so the
+  youngest band needs its *own* shorter shape rather than inheriting this one.
 - **(medium) Spend guard on /api/stories.** Per-user daily story cap counted on
   the stories table (fail closed) before the model call.
 - **(medium) ESLint + CI.** `eslint-config-next`, then a PR workflow running
   typecheck + vitest + build (the same gate on pull_request, not just push).
 - **(medium) PWA manifest + icons** so the app installs to a tablet home screen.
-- **(low) Reader progress dots don't scale past ~8 pages** (PR #1 review): the
-  age-ladder work that introduces 10-page stories needs a dot treatment or a
-  page-count label for longer books.
 - **(low) Supabase dashboard: enable leaked-password protection** (security
   advisor; the app is magic-link-first, so low urgency).
 - **(medium) Verify the subscription generation path end-to-end** once a

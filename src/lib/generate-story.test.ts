@@ -1,19 +1,25 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-  cliSpawnEnv,
-  extractJsonObject,
-  generateFromText,
-  systemPrompt,
-  userPrompt,
-} from "@/lib/generate-story";
+import { extractJsonObject } from "@/lib/claude";
+import { STORY_LIMITS } from "@/lib/constants";
+import { generateFromText, systemPrompt, userPrompt } from "@/lib/generate-story";
 
-// A story that passes storySchema: 3 pages, 2-5 words each, 1 character.
-const VALID_STORY =
-  '{"title":"Little Duck","pages":[' +
-  '{"text":"Duck goes splash!","imagePrompt":"a small yellow duck splashing","emoji":"🦆"},' +
-  '{"text":"Duck hops high!","imagePrompt":"a small yellow duck hopping","emoji":"🦆"},' +
-  '{"text":"Sleepy Duck naps.","imagePrompt":"a small yellow duck sleeping","emoji":"😴"}],' +
-  '"characters":[{"name":"Duck","look":"a small yellow duck","emoji":"🦆"}]}';
+// A story that passes storySchema: enough pages, 1-2 sentences each, 1 character.
+const PAGES = [
+  "Duck goes splash!",
+  "Duck hops high. The sun is warm!",
+  "Where is Duck's boot?",
+  "Duck looks under a leaf.",
+  "Splash, splash, splash!",
+  "A frog hops by. Hello, frog!",
+  "There is the boot!",
+  "Duck hugs the frog tight.",
+  "Sleepy Duck naps.",
+];
+const VALID_STORY = JSON.stringify({
+  title: "Little Duck",
+  pages: PAGES.map((text) => ({ text })),
+  characters: [{ name: "Duck", look: "a small yellow duck", emoji: "🦆" }],
+});
 const INVALID_STORY = '{"title":"x","pages":[],"characters":[]}';
 
 describe("extractJsonObject", () => {
@@ -48,11 +54,23 @@ describe("extractJsonObject", () => {
 });
 
 describe("prompts", () => {
-  it("system prompt states the JSON shape and word limits", () => {
+  it("system prompt states the JSON shape and the page/word limits", () => {
     const p = systemPrompt(24);
     expect(p).toContain("JSON object");
-    expect(p).toContain("imagePrompt");
-    expect(p).toMatch(/2 to 5 words/);
+    expect(p).toContain(`${STORY_LIMITS.minPages} to ${STORY_LIMITS.maxPages} pages`);
+    expect(p).toMatch(/1 or 2 short sentences/);
+    expect(p).toContain(`${STORY_LIMITS.maxWordsPerPage} words`);
+  });
+
+  it("system prompt keeps the writer to words only — pictures are a later pass", () => {
+    const p = systemPrompt(24);
+    expect(p).not.toContain("imagePrompt");
+    expect(p).toMatch(/illustrator draws the pictures afterward/i);
+  });
+
+  it("user prompt asks for the full page count, so the 3-page example isn't copied", () => {
+    const p = userPrompt({ description: "a duck", friends: [], ageMonths: 24 });
+    expect(p).toContain(`${STORY_LIMITS.minPages} to ${STORY_LIMITS.maxPages} pages`);
   });
 
   it("user prompt lists friends when present", () => {
@@ -93,20 +111,11 @@ describe("authoring brief", () => {
   });
 });
 
-describe("cliSpawnEnv", () => {
-  it("drops ANTHROPIC_API_KEY so the subscription CLI can't bill API credits", () => {
-    const env = cliSpawnEnv({ ANTHROPIC_API_KEY: "sk-ant-xxx", PATH: "/bin" }, "oat-token");
-    expect(env.ANTHROPIC_API_KEY).toBeUndefined();
-    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe("oat-token");
-    expect(env.PATH).toBe("/bin");
-  });
-});
-
 describe("generateFromText retry policy", () => {
   it("returns the parsed story on valid output", async () => {
     const story = await generateFromText(async () => VALID_STORY);
     expect(story.title).toBe("Little Duck");
-    expect(story.pages).toHaveLength(3);
+    expect(story.pages).toHaveLength(PAGES.length);
   });
 
   it("retries once on invalid output, then succeeds", async () => {
