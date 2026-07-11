@@ -76,7 +76,9 @@ export default function Reader({ title, pages }: { title: string; pages: ReaderP
             aria-hidden="true"
             className="rounded-full bg-white px-4 py-1.5 text-xl font-black tabular-nums text-ink-soft"
           >
-            {Math.min(index + 1, pages.length)}/{pages.length}
+            {/* On the End card show a check, not "12/12" again, so the counter
+                visibly changes on the last turn the way the dots all dim to. */}
+            {index < endIndex ? `${index + 1}/${pages.length}` : "✓"}
           </span>
         )}
         <span className="sr-only" aria-live="polite">

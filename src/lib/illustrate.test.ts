@@ -134,6 +134,13 @@ describe("sanitizeSvg", () => {
     expect(sanitizeSvg('<svg xmlns="http://www.w3.org/2000/svg"><circle r="1"/></svg>')).toBeNull();
   });
 
+  // Two drawings under one page marker concatenate into a multi-root document:
+  // every element is allowed and it starts/ends with svg, but it isn't
+  // well-formed XML and won't render via <img>.
+  it("rejects two concatenated svg roots", () => {
+    expect(sanitizeSvg(OK_SVG + OK_SVG)).toBeNull();
+  });
+
   // A repeated attribute is fatal XML — the browser fails to render the image
   // entirely — but tags and content are otherwise fine, so only a
   // well-formedness check catches it. Observed live: two `stroke=`s on one path.

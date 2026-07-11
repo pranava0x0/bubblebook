@@ -8,6 +8,12 @@ export type PageImage = {
   ext: string;
 };
 
+// Wrap an SVG string as a storable page image. One place so the content type
+// and extension can't drift between the placeholder path and the Claude path.
+export function svgImage(svg: string): PageImage {
+  return { bytes: Buffer.from(svg, "utf8"), contentType: "image/svg+xml", ext: "svg" };
+}
+
 // Values interpolated into SVG markup must be XML-escaped — whitespace
 // stripping alone doesn't stop a quote or angle bracket breaking out.
 export function escapeXml(value: string): string {
@@ -59,8 +65,8 @@ async function openAiImage(prompt: string): Promise<PageImage> {
   const key = requiredEnv("OPENAI_API_KEY");
   const res = await fetch("https://api.openai.com/v1/images/generations", {
     method: "POST",
-    // Fail fast on a hung provider: well under the route's 120s maxDuration so
-    // the user gets a real error instead of a gateway timeout.
+    // Fail fast on a hung provider: well under the route's maxDuration so the
+    // user gets a real error instead of a gateway timeout.
     signal: AbortSignal.timeout(45_000),
     headers: {
       "content-type": "application/json",
@@ -118,9 +124,5 @@ export async function makePageImage(input: {
   if (input.provider === "openai") {
     return openAiImage(input.prompt);
   }
-  return {
-    bytes: Buffer.from(placeholderSvg(input.emoji, input.prompt), "utf8"),
-    contentType: "image/svg+xml",
-    ext: "svg",
-  };
+  return svgImage(placeholderSvg(input.emoji, input.prompt));
 }

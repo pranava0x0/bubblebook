@@ -126,6 +126,14 @@ describe("storySchema", () => {
     expect(storySchema.safeParse(story).success).toBe(false);
   });
 
+  it("accepts a page ending in quoted dialogue or a parenthetical aside", () => {
+    for (const text of ['Ducky says, "Quack!"', "Peekaboo, there he is (hooray!)"]) {
+      const story = validStory();
+      story.pages[0].text = text;
+      expect(storySchema.safeParse(story).success).toBe(true);
+    }
+  });
+
   it("rejects a five-word title", () => {
     const story = validStory();
     story.title = "The Very Long Duck Story";

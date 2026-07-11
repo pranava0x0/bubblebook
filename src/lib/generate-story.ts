@@ -1,4 +1,4 @@
-import { askClaude } from "@/lib/claude";
+import { askClaude, extractJsonObject } from "@/lib/claude";
 import { STORY_LIMITS } from "@/lib/constants";
 import { storySchema, type GeneratedStory } from "@/lib/story-schema";
 
@@ -51,32 +51,6 @@ export function userPrompt(seed: StorySeed): string {
     "Respond with only the JSON object.",
   );
   return parts.join("\n");
-}
-
-// The model is told to return bare JSON, but tolerate a stray markdown fence
-// or leading prose by extracting the first balanced {...} object.
-export function extractJsonObject(text: string): string | null {
-  const start = text.indexOf("{");
-  if (start === -1) return null;
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-  for (let i = start; i < text.length; i++) {
-    const ch = text[i];
-    if (inString) {
-      if (escaped) escaped = false;
-      else if (ch === "\\") escaped = true;
-      else if (ch === '"') inString = false;
-      continue;
-    }
-    if (ch === '"') inString = true;
-    else if (ch === "{") depth++;
-    else if (ch === "}") {
-      depth--;
-      if (depth === 0) return text.slice(start, i + 1);
-    }
-  }
-  return null;
 }
 
 // Retry orchestration, separated from credential/transport so it's testable.

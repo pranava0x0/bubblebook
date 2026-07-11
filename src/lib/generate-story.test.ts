@@ -1,11 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+import { extractJsonObject } from "@/lib/claude";
 import { STORY_LIMITS } from "@/lib/constants";
-import {
-  extractJsonObject,
-  generateFromText,
-  systemPrompt,
-  userPrompt,
-} from "@/lib/generate-story";
+import { generateFromText, systemPrompt, userPrompt } from "@/lib/generate-story";
 
 // A story that passes storySchema: enough pages, 1-2 sentences each, 1 character.
 const PAGES = [
