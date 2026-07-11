@@ -154,3 +154,40 @@ Long debugging session; two real findings, both fixed.
 - **Lesson:** validate model output only as strictly as the app actually needs —
   a required-string schema on a field the rest of the stack treats as optional
   turns a cosmetic model quirk into a hard user-facing failure.
+
+## 2026-07-11 — Four-angle review of the art-direction layer (PR #5)
+
+Adversarial review (4 parallel finders: correctness, schema/route, cleanup,
+removed-behavior) over the longer-books + Claude-drawn-images work. All fixed
+before merge; each has a regression test where the fix is behavioral.
+
+- **`planArt` `JSON.parse` outside its try/catch (code bug).** A brace-balanced
+  but invalid/truncated art plan threw past the "derive from the text" fallback
+  and 502'd the whole request. Now the parse is guarded and falls back to
+  `derivePlan`.
+- **OpenAI provider path had no per-page fallback (code bug).** One failed image
+  rejected the `Promise.all` and lost the whole book, unlike the Claude path.
+  Each page now falls back to placeholder art on its own.
+- **Multi-root SVG passed the sanitizer (code bug).** Two `<svg>`s concatenated
+  under one page marker form invalid XML that renders blank; `sanitizeSvg` now
+  rejects anything with more than one root. Regression test added.
+- **Placeholder provider fired a Claude art-direction call (regression).**
+  `planArt` ran before the provider was resolved, so `IMAGE_PROVIDER=placeholder`
+  lost its zero-model-call floor. Provider is resolved first; placeholder derives
+  its plan locally.
+- **Quoted-dialogue page falsely rejected (code bug).** The terminal-punctuation
+  check read only the last character, so `Dog says, "Woof!"` failed. It now
+  strips trailing closing quotes/brackets first. Regression test added.
+- **Cleanup:** single-sourced the SVG element allowlist (prompt prose had drifted
+  from `ALLOWED_TAGS` — missing `desc`); extracted `svgImage` to `images.ts`;
+  moved the fallback palette to `constants.ts`; moved `extractJsonObject` to
+  `claude.ts` (was an art→story-writer dependency); documented the
+  `hasDuplicateAttribute` heuristic.
+- **Known limitations, not fixed (low severity):** the sum of internal per-stage
+  timeouts can exceed `maxDuration` (see backlog "Illustration latency"); and
+  `countSentences` over-counts abbreviations like "Mr. Dog" (documented in
+  `story-schema.ts`, absorbed by the retry).
+- **Status:** Fixed. `typecheck` + 88 tests + `build` green; re-verified live.
+- **Lesson:** put the model-output `JSON.parse` *inside* the same guard as the
+  API call — `extractJsonObject` guarantees balanced braces, not valid JSON, so
+  an unguarded parse silently defeats a documented fallback.

@@ -10,6 +10,25 @@ export function countWords(text: string): number {
     .filter(Boolean).length;
 }
 
+// An ellipsis ends a sentence too: the brief asks sleepy books to close on
+// "Goodnight…", so treating it as a fragment would reject a page we asked for.
+const SENTENCE_END = /[.!?…]/;
+
+// Counts sentences by terminal punctuation. A run of terminators ("Wow!!") is
+// one sentence; a trailing fragment carrying no terminator counts as none, and
+// the terminator check below rejects that separately so it can't slip through.
+// Known limitation: an abbreviation ("Mr. Dog") counts its period as a boundary
+// and can over-count — rare in toddler vocabulary, and the one retry absorbs it
+// (see backlog). Not worth an abbreviation dictionary here.
+export function countSentences(text: string): number {
+  const sentences = text.match(/[^.!?…]+[.!?…]+/g) ?? [];
+  return sentences.filter((sentence) => countWords(sentence) > 0).length;
+}
+
+// The story layer writes only words. The picture for each page — scene and
+// emoji — is a separate art-direction pass over the finished story (see
+// src/lib/illustrate.ts), so the writer can spend its whole attention on text.
+//
 // Constraints live in superRefine, not in .min()/.max(): Anthropic structured
 // outputs reject JSON-schema string/array constraints (minLength, minItems),
 // while zod refinements stay client-side and still gate the parsed object.
@@ -17,16 +36,13 @@ const pageSchema = z
   .object({
     text: z
       .string()
-      .describe('The page text: 2 to 5 simple words, e.g. "Big truck goes fast!"'),
-    imagePrompt: z
-      .string()
       .describe(
-        "One sentence describing this page's picture. Repeat the character's exact look every time.",
+        'The page text: 1 or 2 short sentences, 2 to 16 words total, e.g. "The big red truck rumbles up the hill. Beep, beep!"',
       ),
-    emoji: z.string().describe("One emoji that matches this page's picture"),
   })
   .superRefine((page, ctx) => {
-    const words = countWords(page.text);
+    const text = page.text.trim();
+    const words = countWords(text);
     if (words < STORY_LIMITS.minWordsPerPage || words > STORY_LIMITS.maxWordsPerPage) {
       ctx.addIssue({
         code: "custom",
@@ -34,12 +50,25 @@ const pageSchema = z
         message: `page text must be ${STORY_LIMITS.minWordsPerPage}-${STORY_LIMITS.maxWordsPerPage} words, got ${words}`,
       });
     }
-    if (page.imagePrompt.trim().length < 8) {
-      ctx.addIssue({ code: "custom", path: ["imagePrompt"], message: "image prompt too short" });
+    // Ignore trailing closing quotes/brackets before checking the terminal
+    // character: a page can legitimately end in quoted dialogue or an aside —
+    // `Dog says, "Woof!"` or `Peekaboo (there he is!)` — where the real
+    // sentence-ender sits one or two characters in from the end.
+    const ended = text.replace(/[)\]"'’”]+$/u, "");
+    if (!SENTENCE_END.test(ended.slice(-1))) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["text"],
+        message: "page text must end with . ! ? or …",
+      });
     }
-    const emoji = page.emoji.trim();
-    if (emoji.length === 0 || emoji.length > 8) {
-      ctx.addIssue({ code: "custom", path: ["emoji"], message: "need exactly one emoji" });
+    const sentences = countSentences(text);
+    if (sentences < 1 || sentences > STORY_LIMITS.maxSentencesPerPage) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["text"],
+        message: `page text must be 1-${STORY_LIMITS.maxSentencesPerPage} sentences, got ${sentences}`,
+      });
     }
   });
 
@@ -53,8 +82,7 @@ const characterSchema = z
       ),
     // Cosmetic only (the vault tile, which falls back to ⭐). The model
     // occasionally returns null here; tolerate it rather than fail the whole
-    // story over a decorative field. Page emoji (which drives the picture)
-    // stays strictly required.
+    // story over a decorative field.
     emoji: z
       .string()
       .nullish()
@@ -72,11 +100,13 @@ const characterSchema = z
 
 export const storySchema = z
   .object({
-    title: z.string().describe("Story title: 2 to 4 simple words"),
-    pages: z.array(pageSchema).describe("3 to 5 pages, in order"),
+    title: z.string().describe(`Story title: 1 to ${STORY_LIMITS.maxTitleWords} simple words`),
+    pages: z
+      .array(pageSchema)
+      .describe(`${STORY_LIMITS.minPages} to ${STORY_LIMITS.maxPages} pages, in order`),
     characters: z
       .array(characterSchema)
-      .describe("The 1-3 characters that appear in the story"),
+      .describe(`The 1-${STORY_LIMITS.maxCharacters} characters that appear in the story`),
   })
   .superRefine((story, ctx) => {
     if (story.pages.length < STORY_LIMITS.minPages || story.pages.length > STORY_LIMITS.maxPages) {

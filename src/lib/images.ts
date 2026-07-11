@@ -8,6 +8,12 @@ export type PageImage = {
   ext: string;
 };
 
+// Wrap an SVG string as a storable page image. One place so the content type
+// and extension can't drift between the placeholder path and the Claude path.
+export function svgImage(svg: string): PageImage {
+  return { bytes: Buffer.from(svg, "utf8"), contentType: "image/svg+xml", ext: "svg" };
+}
+
 // Values interpolated into SVG markup must be XML-escaped — whitespace
 // stripping alone doesn't stop a quote or angle bracket breaking out.
 export function escapeXml(value: string): string {
@@ -59,8 +65,8 @@ async function openAiImage(prompt: string): Promise<PageImage> {
   const key = requiredEnv("OPENAI_API_KEY");
   const res = await fetch("https://api.openai.com/v1/images/generations", {
     method: "POST",
-    // Fail fast on a hung provider: well under the route's 120s maxDuration so
-    // the user gets a real error instead of a gateway timeout.
+    // Fail fast on a hung provider: well under the route's maxDuration so the
+    // user gets a real error instead of a gateway timeout.
     signal: AbortSignal.timeout(45_000),
     headers: {
       "content-type": "application/json",
@@ -88,18 +94,35 @@ async function openAiImage(prompt: string): Promise<PageImage> {
   };
 }
 
+export type ImageProvider = "claude" | "openai" | "placeholder";
+
+// `claude` (the default whenever a Claude credential exists) has the model draw
+// each page as SVG on the same subscription that writes the story. `openai`
+// needs a key and bills per image. `placeholder` is the keyless floor: one big
+// emoji on a flat scene.
+export function resolveImageProvider(env: {
+  IMAGE_PROVIDER?: string;
+  OPENAI_API_KEY?: string;
+  hasClaudeCredential: boolean;
+}): ImageProvider {
+  const explicit = env.IMAGE_PROVIDER?.trim();
+  if (explicit === "claude" || explicit === "openai" || explicit === "placeholder") {
+    return explicit;
+  }
+  if (env.hasClaudeCredential) return "claude";
+  if (env.OPENAI_API_KEY) return "openai";
+  return "placeholder";
+}
+
+// One page, for the providers that draw a page at a time. The `claude` provider
+// works a batch of pages at once (see illustrate.ts), so it isn't reachable here.
 export async function makePageImage(input: {
   prompt: string;
   emoji: string;
+  provider: Exclude<ImageProvider, "claude">;
 }): Promise<PageImage> {
-  const provider =
-    process.env.IMAGE_PROVIDER ?? (process.env.OPENAI_API_KEY ? "openai" : "placeholder");
-  if (provider === "openai") {
+  if (input.provider === "openai") {
     return openAiImage(input.prompt);
   }
-  return {
-    bytes: Buffer.from(placeholderSvg(input.emoji, input.prompt), "utf8"),
-    contentType: "image/svg+xml",
-    ext: "svg",
-  };
+  return svgImage(placeholderSvg(input.emoji, input.prompt));
 }

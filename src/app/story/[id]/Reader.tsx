@@ -13,6 +13,10 @@ export type ReaderPage = {
 
 const SWIPE_THRESHOLD = 80;
 
+// Past this, a dot per page stops fitting between the two 56px header buttons
+// on a 375px screen. Longer books get a count instead.
+const MAX_DOTS = 8;
+
 export default function Reader({ title, pages }: { title: string; pages: ReaderPage[] }) {
   // index runs 0..pages.length; the final index is the "The End" card.
   const [[index, direction], setPage] = useState<[number, number]>([0, 1]);
@@ -56,16 +60,27 @@ export default function Reader({ title, pages }: { title: string; pages: ReaderP
         >
           <Home size={28} strokeWidth={2.75} aria-hidden="true" />
         </Link>
-        <div aria-hidden="true" className="flex items-center gap-2">
-          {pages.map((_, dot) => (
-            <span
-              key={dot}
-              className={`h-3.5 w-3.5 rounded-full transition-transform ${
-                dot === index ? "scale-125 bg-coral" : "bg-ink/20"
-              }`}
-            />
-          ))}
-        </div>
+        {pages.length <= MAX_DOTS ? (
+          <div aria-hidden="true" className="flex items-center gap-2">
+            {pages.map((_, dot) => (
+              <span
+                key={dot}
+                className={`h-3.5 w-3.5 rounded-full transition-transform ${
+                  dot === index ? "scale-125 bg-coral" : "bg-ink/20"
+                }`}
+              />
+            ))}
+          </div>
+        ) : (
+          <span
+            aria-hidden="true"
+            className="rounded-full bg-white px-4 py-1.5 text-xl font-black tabular-nums text-ink-soft"
+          >
+            {/* On the End card show a check, not "12/12" again, so the counter
+                visibly changes on the last turn the way the dots all dim to. */}
+            {index < endIndex ? `${index + 1}/${pages.length}` : "✓"}
+          </span>
+        )}
         <span className="sr-only" aria-live="polite">
           {index < endIndex ? `Page ${index + 1} of ${pages.length}` : "The end"}
         </span>
@@ -126,7 +141,9 @@ export default function Reader({ title, pages }: { title: string; pages: ReaderP
                     </div>
                   )}
                 </div>
-                <p className="text-center text-[clamp(2rem,6vw,3.25rem)] font-black leading-tight">
+                {/* Sized for the long case (two sentences); a three-word
+                    refrain page still reads huge because the line is short. */}
+                <p className="max-w-2xl text-balance text-center text-[clamp(1.5rem,4.5vw,2.75rem)] font-black leading-tight">
                   {page.text}
                 </p>
               </>
