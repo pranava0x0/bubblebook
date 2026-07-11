@@ -1,11 +1,11 @@
 import { z } from "zod";
-import { askClaude, hasClaudeCredential } from "@/lib/claude";
-import { ILLUSTRATION } from "@/lib/constants";
-import { extractJsonObject } from "@/lib/generate-story";
+import { askClaude, extractJsonObject, hasClaudeCredential } from "@/lib/claude";
+import { FALLBACK_PALETTE, ILLUSTRATION } from "@/lib/constants";
 import {
   makePageImage,
   placeholderSvg,
   resolveImageProvider,
+  svgImage,
   type PageImage,
 } from "@/lib/images";
 
@@ -32,7 +32,10 @@ const BATCH_TIMEOUT_MS = 180_000;
 // fetch, script, or embed. Rendered through <img>, an SVG can't run script
 // anyway — but these files live in a public storage bucket and get linked
 // directly, so the allowlist is what makes that safe rather than the <img>.
-const ALLOWED_TAGS = new Set([
+// Canonical casing (SVG is case-sensitive: `linearGradient`, not `lineargradient`)
+// so the same list can be quoted verbatim into the illustrator prompt; the
+// sanitizer compares case-insensitively via ALLOWED_TAGS.
+const ALLOWED_ELEMENTS = [
   "svg",
   "title",
   "desc",
@@ -45,10 +48,11 @@ const ALLOWED_TAGS = new Set([
   "line",
   "polyline",
   "polygon",
-  "lineargradient",
-  "radialgradient",
+  "linearGradient",
+  "radialGradient",
   "stop",
-]);
+] as const;
+const ALLOWED_TAGS = new Set(ALLOWED_ELEMENTS.map((tag) => tag.toLowerCase()));
 
 // ---------------------------------------------------------------------------
 // Art direction: one pass over the whole finished story that writes the visual
@@ -115,7 +119,7 @@ export function derivePlan(story: StoryForArt): ArtPlan {
   const lead = story.characters[0];
   const leadEmoji = lead?.emoji?.trim() || "📖";
   return {
-    palette: { sky: "#BEE7FB", ground: "#CFE8B8", outline: "#2E2A28" },
+    palette: { ...FALLBACK_PALETTE },
     cast: story.characters.map((c) => ({ name: c.name, sheet: c.look })),
     pages: story.pages.map((page, index) => ({
       page: index + 1,
@@ -159,13 +163,26 @@ export async function planArt(story: StoryForArt): Promise<ArtPlan> {
     console.error("[illustrate] art direction failed; deriving a plan from the text:", error);
     return derivePlan(story);
   }
-  const json = extractJsonObject(text);
-  const parsed = json ? artPlanSchema.safeParse(JSON.parse(json)) : null;
-  if (!parsed || !parsed.success) {
+  // A brace-balanced substring can still be invalid JSON (a truncated reply, a
+  // trailing comma), and JSON.parse throws — so it must be inside the guard, or
+  // the "derive from the text" fallback below is unreachable and the whole
+  // request 502s on a bad plan instead of degrading.
+  const parsePlan = (): ArtPlan | null => {
+    const json = extractJsonObject(text);
+    if (!json) return null;
+    try {
+      const result = artPlanSchema.safeParse(JSON.parse(json));
+      return result.success ? result.data : null;
+    } catch {
+      return null;
+    }
+  };
+  const plan = parsePlan();
+  if (!plan) {
     console.error("[illustrate] art plan was not valid JSON; deriving from the text");
     return derivePlan(story);
   }
-  return normalizePlan(parsed.data, story);
+  return normalizePlan(plan, story);
 }
 
 // The palette + cast, formatted as the sheet each drawing batch obeys. Batches
@@ -192,7 +209,7 @@ Every picture:
 - Draw the scene you are given faithfully — its subject, action, framing, and background. Fill most of the frame; leave no big empty margins.
 - Faces are simple and happy: dot eyes, a small curved smile. Never scary, never sad.
 - NO text, letters, or numbers anywhere in the picture.
-- Use ONLY these elements: svg, title, defs, g, path, circle, ellipse, rect, line, polyline, polygon, linearGradient, radialGradient, stop. No <text>, no <image>, no <use>, no <style>, no <script>, no filters, no animation, no external URLs, no event attributes.
+- Use ONLY these elements: ${ALLOWED_ELEMENTS.join(", ")}. No <text>, no <image>, no <use>, no <style>, no <script>, no filters, no animation, no external URLs, no event attributes.
 - Keep each picture under ${ILLUSTRATION.maxSvgChars} characters.
 
 CONSISTENCY IS THE POINT: the same character appears on many pages. Use the exact hex colors and proportions from the style sheet every single time. Only pose, expression, framing, and surroundings change.
@@ -246,6 +263,11 @@ export function parseIllustrations(text: string): Map<number, string> {
 // and loaded via <img> then fails to render at all. Catch it so the page falls
 // back to placeholder art (and the retry redraws it) instead of shipping a
 // broken image the allowlist would happily pass.
+//
+// Heuristic, not a parser: `<[a-zA-Z][^>]*>` treats the first `>` as the tag
+// end, so a literal `>` inside a quoted attribute value would split one tag in
+// two. Our flat drawings never put `>` in a color/number/path value, and a
+// miss only costs a placeholder fallback, so the shortcut is safe here.
 function hasDuplicateAttribute(svg: string): boolean {
   for (const tag of svg.matchAll(/<[a-zA-Z][^>]*>/g)) {
     const seen = new Set<string>();
@@ -280,6 +302,11 @@ export function sanitizeSvg(svg: string): string | null {
     if (!ALLOWED_TAGS.has(match[1].toLowerCase())) return null;
   }
   if (!lower.includes("viewbox")) return null;
+  // Exactly one root <svg>. Two drawings concatenated under one page marker form
+  // a multi-root document — every check above still passes, but it isn't
+  // well-formed XML and won't render via <img>. parseIllustrations can hand us
+  // such a blob when the model emits two SVGs for one page.
+  if ((lower.match(/<svg[\s>]/g)?.length ?? 0) !== 1) return null;
   if (hasDuplicateAttribute(trimmed)) return null;
   return trimmed;
 }
@@ -288,10 +315,6 @@ function chunk<T>(items: T[], size: number): T[][] {
   const batches: T[][] = [];
   for (let i = 0; i < items.length; i += size) batches.push(items.slice(i, i + size));
   return batches;
-}
-
-function svgImage(svg: string): PageImage {
-  return { bytes: Buffer.from(svg, "utf8"), contentType: "image/svg+xml", ext: "svg" };
 }
 
 // Draws one batch. A batch that fails — transport error, garbled output, an SVG
@@ -371,25 +394,40 @@ async function drawWithClaude(
 // story, then draws it with whichever provider is configured — always one
 // image per page, in page order.
 export async function makeStoryImages(story: StoryForArt): Promise<IllustratedPage[]> {
-  const plan = await planArt(story);
-  const pages: IllustrationPage[] = plan.pages
-    .slice()
-    .sort((a, b) => a.page - b.page)
-    .map((p) => ({ pageNumber: p.page, scene: p.scene, emoji: p.emoji }));
-
   const provider = resolveImageProvider({
     IMAGE_PROVIDER: process.env.IMAGE_PROVIDER,
     OPENAI_API_KEY: process.env.OPENAI_API_KEY,
     hasClaudeCredential: hasClaudeCredential(),
   });
 
+  // Placeholder art is the keyless, instant floor: it draws one emoji on a flat
+  // scene and needs no art direction, so it never spends a model call — even
+  // when a Claude credential is present. The other providers get the full
+  // art-director pass over the finished story.
+  const plan = provider === "placeholder" ? derivePlan(story) : await planArt(story);
+  const pages: IllustrationPage[] = plan.pages
+    .slice()
+    .sort((a, b) => a.page - b.page)
+    .map((p) => ({ pageNumber: p.page, scene: p.scene, emoji: p.emoji }));
+
   const images =
     provider === "claude"
       ? await drawWithClaude(styleSheetFrom(plan), pages)
-      : await Promise.all(
-          pages.map((page) =>
-            makePageImage({ prompt: page.scene, emoji: page.emoji, provider }),
-          ),
+      : // openai / placeholder draw a page at a time. Give each its own fallback
+        // so one provider error (a 429, a slow page) can't sink the whole book,
+        // matching how drawWithClaude degrades page by page.
+        await Promise.all(
+          pages.map(async (page) => {
+            try {
+              return await makePageImage({ prompt: page.scene, emoji: page.emoji, provider });
+            } catch (error) {
+              console.error(
+                `[illustrate] page ${page.pageNumber} image failed; using placeholder:`,
+                error,
+              );
+              return svgImage(placeholderSvg(page.emoji, page.scene));
+            }
+          }),
         );
 
   return pages.map((page, index) => ({

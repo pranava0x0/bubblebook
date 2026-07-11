@@ -1,9 +1,15 @@
 # Bubble Book — project intent
 
-An AI board-book maker for a parent and a 2-year-old: tap a picture, get a
-3–5 page story (2–5 words per page), characters persist in a vault for reuse.
-Stack: Next.js 15 (App Router) · Tailwind 4 (tokens in `src/app/globals.css`)
-· Supabase (live project `fwhdonlyhnezjnskjvcb`; migrations in
+An AI board-book maker for a parent and a 2-year-old: tap a picture, get an
+8–12 page story (1–2 short sentences per page) that Claude both writes and
+illustrates, characters persist in a vault for reuse. Generation is three
+layers, deliberately separate (see `src/lib/`): the story writer emits words
+only, an **art director** (`illustrate.ts`) reads the finished story and plans
+the visuals — palette, per-character style sheet, a tight scene per page — then
+Claude draws each page as sanitized SVG. Splitting art direction out of the
+writing call is what made the pictures specific instead of loose. Stack:
+Next.js 15 (App Router) · Tailwind 4 (tokens in `src/app/globals.css`) ·
+Supabase (live project `fwhdonlyhnezjnskjvcb`; migrations in
 `supabase/migrations/`) · `claude-sonnet-5` via the official Anthropic SDK
 (credentials from `ANTHROPIC_API_KEY` **or** an `ant auth login` profile — the
 Vercel AI SDK was dropped because it is key-only).
@@ -93,6 +99,7 @@ Never blindly write code.
 - **Key file-backed caches on a signature, not a TTL.** For a cache fronting a local file, key on `(mtime_ns, size)` instead of a fixed `ttl=`; it busts the instant the file changes and serves indefinitely otherwise. A time-based TTL either serves stale data or churns needlessly.
 - **Cache keys must be the caller's own stable identifier, never a volatile token.** Keying on a response-generated ID (changes every call) or on `id()` of a per-request connection object (a fresh object every request) silently gives 0% hit rate forever, with no error to notice it by.
 - **Native parsers can silently succeed with a wrong value instead of throwing.** `new Date("March 29, 2026 TBD")` parses to midnight UTC rather than erroring, shifting a future event into the past in a US timezone. Validate parsed dates/numbers against a sanity range, don't trust "it didn't throw" as "it's correct."
+- **Guard the `JSON.parse` of a model reply inside the SAME try/catch as the API call, and resolve the cheap/keyless path before spending the model call.** A "grab the first balanced `{…}`" extractor guarantees balanced braces, not valid JSON — a truncated or trailing-comma reply still throws at `JSON.parse`. If that parse sits outside the guard, a documented "fall back to a derived default" branch becomes unreachable and one bad generation 502s the whole request. Put the parse (and the schema validate) in the guard so the fallback actually fires. Related: when one provider/mode is a zero-cost floor (placeholder art, a cached answer), resolve which mode you're in *before* firing the planning/model call, or the floor silently starts paying for work it exists to avoid.
 - **A conditional write gated only on business-logic state (not rows-affected) can silently no-op.** An RLS policy or a permissions check can block an `UPDATE`/`DELETE` and return 0 rows with no exception; the app proceeds as if it succeeded. Check rows-affected for any write the app's correctness depends on.
 - **A poll/wait loop must log each attempt and surface the last status or error in its timeout.** A `while not live: sleep()` that only checks the success case and raises a bare "never became ready" discards the cause: a permanently broken target (auth disabled, wrong URL) is indistinguishable from a slow one, and whoever's debugging is flying blind. Capture the last status/exception, log each iteration, fast-fail on a status that will never heal (401/403), and put the last status plus a body excerpt in the raised error.
 - **A spend cap or rate guard must count on the column that signals the action, not a later terminal timestamp.** If an external id (a posted-tweet id) commits a step before the timestamp that marks success, counting the period's actions by that terminal timestamp silently omits any attempt that fired the side-effect then crashed before completing (its terminal timestamp is null), and the cap gets walked past. Count on the signal column itself, with a window that also catches fired-but-unfinished rows, and bias the estimate toward over-counting: a guard should fail closed.

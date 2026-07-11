@@ -17,6 +17,9 @@ const SENTENCE_END = /[.!?…]/;
 // Counts sentences by terminal punctuation. A run of terminators ("Wow!!") is
 // one sentence; a trailing fragment carrying no terminator counts as none, and
 // the terminator check below rejects that separately so it can't slip through.
+// Known limitation: an abbreviation ("Mr. Dog") counts its period as a boundary
+// and can over-count — rare in toddler vocabulary, and the one retry absorbs it
+// (see backlog). Not worth an abbreviation dictionary here.
 export function countSentences(text: string): number {
   const sentences = text.match(/[^.!?…]+[.!?…]+/g) ?? [];
   return sentences.filter((sentence) => countWords(sentence) > 0).length;
@@ -47,7 +50,12 @@ const pageSchema = z
         message: `page text must be ${STORY_LIMITS.minWordsPerPage}-${STORY_LIMITS.maxWordsPerPage} words, got ${words}`,
       });
     }
-    if (!SENTENCE_END.test(text.slice(-1))) {
+    // Ignore trailing closing quotes/brackets before checking the terminal
+    // character: a page can legitimately end in quoted dialogue or an aside —
+    // `Dog says, "Woof!"` or `Peekaboo (there he is!)` — where the real
+    // sentence-ender sits one or two characters in from the end.
+    const ended = text.replace(/[)\]"'’”]+$/u, "");
+    if (!SENTENCE_END.test(ended.slice(-1))) {
       ctx.addIssue({
         code: "custom",
         path: ["text"],
@@ -74,8 +82,7 @@ const characterSchema = z
       ),
     // Cosmetic only (the vault tile, which falls back to ⭐). The model
     // occasionally returns null here; tolerate it rather than fail the whole
-    // story over a decorative field. Page emoji (which drives the picture)
-    // stays strictly required.
+    // story over a decorative field.
     emoji: z
       .string()
       .nullish()
@@ -93,11 +100,13 @@ const characterSchema = z
 
 export const storySchema = z
   .object({
-    title: z.string().describe("Story title: 2 to 4 simple words"),
-    pages: z.array(pageSchema).describe("3 to 5 pages, in order"),
+    title: z.string().describe(`Story title: 1 to ${STORY_LIMITS.maxTitleWords} simple words`),
+    pages: z
+      .array(pageSchema)
+      .describe(`${STORY_LIMITS.minPages} to ${STORY_LIMITS.maxPages} pages, in order`),
     characters: z
       .array(characterSchema)
-      .describe("The 1-3 characters that appear in the story"),
+      .describe(`The 1-${STORY_LIMITS.maxCharacters} characters that appear in the story`),
   })
   .superRefine((story, ctx) => {
     if (story.pages.length < STORY_LIMITS.minPages || story.pages.length > STORY_LIMITS.maxPages) {

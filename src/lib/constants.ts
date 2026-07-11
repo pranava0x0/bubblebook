@@ -100,3 +100,11 @@ export const PLACEHOLDER_PALETTES: readonly (readonly [string, string])[] = [
   ["#EAE4FA", "#7A63D2"],
   ["#FDE7F1", "#C75E8E"],
 ] as const;
+
+// The palette a derived (no-art-director) illustration plan draws from: sky,
+// ground, and the one near-black outline shared by every shape.
+export const FALLBACK_PALETTE = {
+  sky: "#BEE7FB",
+  ground: "#CFE8B8",
+  outline: "#2E2A28",
+} as const;
