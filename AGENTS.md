@@ -361,7 +361,8 @@ That growth, files getting *slightly* more specific with each session's surprise
   then inject `sb-<ref>-auth-token` = `"base64-" + base64url(session JSON)` as
   a cookie in the driven browser (single cookie below ~3.2KB, chunked `.0/.1`
   above). Seed/unseed script pattern lives in the session scratchpad (e2e.cjs);
-  test account: 2497510+pranava0x0@users.noreply.github.com.
+  test account address: a plus-tagged inbox kept in local `.env.local`
+  (`E2E_TEST_EMAIL`), not in this file.
 - **Two Anthropic OAuth billing entities, easy to confuse:** `ant auth login`
   / platform.claude.com tokens bill **API credits** (fail "credit balance too
   low" on a credit-less org); `claude setup-token` tokens bill the **Claude
